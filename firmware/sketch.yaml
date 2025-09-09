@@ -1,0 +1,4 @@
+default_fqbn: arduino:avr:mega
+default_port: /dev/ttyUSB0
+default_port_config:
+  baudrate: 115200
