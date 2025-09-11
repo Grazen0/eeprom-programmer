@@ -1,15 +1,21 @@
+mod error;
+mod protocol;
 mod serial;
 
 use std::{fs::File, io::Write, path::PathBuf, time::Duration};
 
-use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use serialport::SerialPort;
-use thiserror::Error;
+use derive_more::Display;
+
+use crate::{
+    error::Error,
+    protocol::Packet,
+    serial::{Serial, SerialPortSerial},
+};
 
 #[derive(Debug, Clone, Subcommand)]
 enum Command {
-    /// Dumps the EEPROM data
+    /// Dumps the EEPROM data to a file
     Read {
         #[arg(short, long)]
         out_file: PathBuf,
@@ -22,28 +28,17 @@ enum Command {
     },
 
     /// Writes a file to the EEPROM
-    Write {
-        /// Binary file to upload
-        filename: PathBuf,
-    },
+    Write { filename: PathBuf },
 
-    /// Verifies the EEPROM's contents
+    /// Verifies the EEPROM's data against a file
     Verify {
-        /// Binary file to verify against
         filename: PathBuf,
+        #[arg(long)]
+        fix: bool,
     },
 }
 
-impl Command {
-    fn code(&self) -> u8 {
-        match self {
-            Self::Read { .. } => 0,
-            Self::Write { .. } => 1,
-            Self::Verify { .. } => 2,
-        }
-    }
-}
-
+/// A program to interact with AT28C EEPROM chips
 #[derive(Debug, Clone, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -63,131 +58,216 @@ struct Args {
     command: Command,
 }
 
-#[derive(Debug, Error)]
-enum Error {
-    #[error("Could not open serial port: {0}")]
-    SerialPort(#[from] serialport::Error),
-
-    #[error("I/O error: {0}")]
-    IO(#[from] std::io::Error),
-
-    #[error("Board sent an invalid opcode: {0}")]
-    InvalidOpcode(u8),
-
-    #[error("Received packet is not applicable to current state")]
-    InvalidPacketStateCombo,
-
-    #[error("Unknown: {0}")]
-    Unknown(#[from] anyhow::Error),
-}
-
-#[derive(Debug, Clone)]
-enum Packet {
-    Ready,
-    Print(String),
-    Chunk(Vec<u8>),
-    ReadEnd,
-}
-
-fn read_packet(port: &mut Box<dyn SerialPort>) -> Result<Packet, Error> {
-    let opcode = serial::read_u8(port)?;
-
-    match opcode {
-        0x00 => Ok(Packet::Ready),
-        0x01 => {
-            let len = serial::read_u16(port)?.into();
-            let bytes = serial::read_n_bytes(port, len)?;
-            let str = String::from_utf8(bytes).map_err(|e| anyhow!(e))?;
-            Ok(Packet::Print(str))
-        }
-        0x02 => {
-            let len = serial::read_u8(port)?.into();
-            let bytes = serial::read_n_bytes(port, len)?;
-            Ok(Packet::Chunk(bytes))
-        }
-        0x03 => Ok(Packet::ReadEnd),
-        _ => Err(Error::InvalidOpcode(opcode)),
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Display)]
 enum State {
+    #[display("Readying")]
     Readying,
+
+    #[display("Reading")]
     Reading {
         progress: usize,
         total: usize,
         out_file: File,
+        out_path: PathBuf,
     },
+
+    #[display("Writing")]
+    Writing { current_byte: usize, data: Vec<u8> },
+
+    #[display("Verifying")]
+    Verifying { current_byte: usize, data: Vec<u8> },
+
+    #[display("Finished")]
+    Finished(Result<(), Error>),
 }
 
 const CHUNK_ACK: u8 = 0xFF;
 
-fn run() -> Result<(), Error> {
-    let args = Args::parse();
+fn state_transition(
+    state: State,
+    packet: Packet,
+    port: &mut impl Serial,
+    args: &Args,
+) -> Result<State, Error> {
+    let next_state = match (state, packet) {
+        (_, Packet::Ready) => match args.command {
+            Command::Read {
+                out_file: ref out_path,
+                start,
+                end,
+            } => {
+                if end < start {
+                    return Err(Error::InvalidRegionBounds);
+                }
 
+                println!("Initiating EEPROM read...");
+
+                port.write_u8(0x00)?;
+                port.write_u16(start)?;
+                port.write_u16(end)?;
+
+                State::Reading {
+                    progress: 0,
+                    total: (end - start).into(),
+                    out_file: File::create(out_path)?,
+                    out_path: out_path.clone(),
+                }
+            }
+            Command::Write { ref filename } => {
+                println!("Initiating EEPROM write...");
+
+                let data = std::fs::read(filename)?;
+
+                port.write_u8(0x01)?;
+
+                State::Writing {
+                    current_byte: 0,
+                    data,
+                }
+            }
+            Command::Verify { ref filename, fix } => {
+                println!("Initiating EEPROM verification...");
+
+                let data = std::fs::read(filename)?;
+
+                port.write_u8(0x02)?;
+                port.write_u8(fix.into())?;
+
+                State::Verifying {
+                    current_byte: 0,
+                    data,
+                }
+            }
+        },
+        (state, Packet::Print(s)) => {
+            print!("{}", s);
+            std::io::stdout().flush()?;
+            state
+        }
+        (_, Packet::InvalidChecksum { expected, computed }) => {
+            State::Finished(Err(Error::InvalidPacketChecksum { expected, computed }))
+        }
+
+        (
+            State::Reading {
+                progress,
+                total,
+                mut out_file,
+                out_path,
+            },
+            Packet::Chunk {
+                data: chunk_data,
+                checksum,
+            },
+        ) => {
+            assert_eq!(
+                checksum,
+                protocol::calculate_checksum(&chunk_data),
+                "chunk checksum comparison failed"
+            );
+
+            let new_progress = progress + chunk_data.len();
+            out_file.write_all(&chunk_data)?;
+
+            port.write_u8(CHUNK_ACK)?;
+
+            print!("\rProgress: {}%", (new_progress * 100) / total);
+            std::io::stdout().flush()?;
+
+            State::Reading {
+                progress: new_progress,
+                total,
+                out_file,
+                out_path,
+            }
+        }
+        (State::Reading { out_path, .. }, Packet::ReadEnd) => {
+            println!();
+            println!("Memory contents successfully dumped to {:?}", out_path);
+            State::Finished(Ok(()))
+        }
+
+        (State::Writing { current_byte, data }, Packet::ChunkRequest)
+            if current_byte >= data.len() =>
+        {
+            println!();
+            port.write_u8(0x00)?;
+            State::Finished(Ok(()))
+        }
+        (
+            State::Writing {
+                mut current_byte,
+                data,
+            },
+            Packet::ChunkRequest,
+        ) => {
+            protocol::send_data_chunk(port, &data, &mut current_byte)?;
+            State::Writing { current_byte, data }
+        }
+
+        (
+            state @ State::Verifying { .. },
+            Packet::ByteMismatch {
+                address,
+                expected,
+                computed,
+            },
+        ) => {
+            println!(
+                "Byte mismatch at 0x{:04X} (expected = 0x{:02X}, was = 0x{:02X})",
+                address, expected, computed
+            );
+            state
+        }
+        (State::Verifying { current_byte, data }, Packet::ChunkRequest)
+            if current_byte >= data.len() =>
+        {
+            println!();
+            port.write_u8(0x00)?;
+            State::Finished(Ok(()))
+        }
+        (
+            State::Verifying {
+                mut current_byte,
+                data,
+            },
+            Packet::ChunkRequest,
+        ) => {
+            protocol::send_data_chunk(&mut *port, &data, &mut current_byte)?;
+            State::Verifying { current_byte, data }
+        }
+
+        (state, packet) => State::Finished(Err(Error::UnexpectedPacket {
+            state_variant: state.to_string(),
+            packet,
+        })),
+    };
+
+    Ok(next_state)
+}
+
+fn run(args: Args) -> Result<(), Error> {
     println!("Opening port...");
-    let mut port = serialport::new(args.port, args.baud_rate)
-        .timeout(Duration::from_millis(args.timeout))
-        .open()?;
-
-    println!("Listening to packets...");
+    let mut port = SerialPortSerial::new(
+        &args.port,
+        args.baud_rate,
+        Duration::from_millis(args.timeout),
+    )?;
 
     let mut state = State::Readying;
 
     loop {
-        let packet = read_packet(&mut port)?;
+        let packet = protocol::read_packet(&mut port)?;
+        state = state_transition(state, packet, &mut port, &args)?;
 
-        match (&mut state, packet) {
-            (_, Packet::Ready) => {
-                port.write_all(&[args.command.code()])?;
-
-                match &args.command {
-                    Command::Read {
-                        out_file: out_path,
-                        start,
-                        end,
-                    } => {
-                        println!("Initiating EEPROM read...");
-                        state = State::Reading {
-                            progress: 0,
-                            total: (end - start).into(),
-                            out_file: File::create(out_path)?,
-                        };
-
-                        serial::write_u16(&mut port, *start)?;
-                        serial::write_u16(&mut port, *end)?;
-                    }
-                    _ => todo!(),
-                }
-            }
-            (_, Packet::Print(s)) => {
-                print!("{}", s);
-                std::io::stdout().flush()?;
-            }
-            (
-                State::Reading {
-                    progress,
-                    total,
-                    out_file,
-                },
-                Packet::Chunk(new_data),
-            ) => {
-                *progress += new_data.len();
-                out_file.write_all(&new_data)?;
-                port.write_all(&[CHUNK_ACK])?;
-
-                print!("\rProgress: {}%", (*progress * 100) / *total);
-                std::io::stdout().flush()?;
-            }
-            (State::Reading { .. }, Packet::ReadEnd) => {
-                println!();
-                return Ok(());
-            }
-            _ => return Err(Error::InvalidPacketStateCombo),
-        };
+        if let State::Finished(result) = state {
+            return result;
+        }
     }
 }
 
 fn main() -> anyhow::Result<()> {
-    Ok(run()?)
+    let args = Args::parse();
+
+    Ok(run(args)?)
 }
