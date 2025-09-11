@@ -6,5 +6,6 @@ pkgs.mkShell {
     pkg-config
     udev
     arduino-cli
+    xxd
   ];
 }
