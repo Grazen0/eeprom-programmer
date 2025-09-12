@@ -1,5 +1,5 @@
 [package]
-name = "eeprom-uploader"
+name = "eeprom-programmer"
 description = "A program to interact with AT28C EEPROM chips"
 homepage = "https://github.com/Grazen0/eeprom-programmer"
 license = "MIT"
