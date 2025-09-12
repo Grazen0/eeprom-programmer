@@ -1,10 +1,14 @@
 {
-  pkgs ? import <nixpkgs> { },
+  mkShell,
+
+  eeprom-uploader,
+  arduino-cli,
+  xxd,
 }:
-pkgs.mkShell {
-  packages = with pkgs; [
-    pkg-config
-    udev
+mkShell {
+  inputsFrom = [ eeprom-uploader ];
+
+  packages = [
     arduino-cli
     xxd
   ];

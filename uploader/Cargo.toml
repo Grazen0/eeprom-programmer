@@ -1,5 +1,8 @@
 [package]
 name = "eeprom-uploader"
+description = "A program to interact with AT28C EEPROM chips"
+homepage = "https://github.com/Grazen0/eeprom-programmer"
+license = "MIT"
 version = "0.1.0"
 edition = "2024"
 
