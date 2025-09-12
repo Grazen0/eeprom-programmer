@@ -2,34 +2,30 @@ use std::time::Duration;
 
 use serialport::SerialPort;
 
-pub trait Serial {
-    fn write_u8(&mut self, value: u8) -> anyhow::Result<()>;
-
-    fn write_u16(&mut self, value: u16) -> anyhow::Result<()>;
-
-    fn write_n(&mut self, data: &[u8]) -> anyhow::Result<()>;
-
+pub trait SerialIO {
     fn read_u8(&mut self) -> anyhow::Result<u8>;
-
     fn read_u16(&mut self) -> anyhow::Result<u16>;
-
     fn read_n(&mut self, n: usize) -> anyhow::Result<Vec<u8>>;
+
+    fn write_u8(&mut self, value: u8) -> anyhow::Result<()>;
+    fn write_u16(&mut self, value: u16) -> anyhow::Result<()>;
+    fn write_n(&mut self, data: &[u8]) -> anyhow::Result<()>;
 }
 
 #[derive(Debug)]
-pub struct SerialPortSerial {
+pub struct SerialPortIO {
     port: Box<dyn SerialPort>,
 }
 
-impl SerialPortSerial {
+impl SerialPortIO {
     pub fn new(path: &str, baud_rate: u32, timeout: Duration) -> anyhow::Result<Self> {
         let port = serialport::new(path, baud_rate).timeout(timeout).open()?;
 
-        Ok(SerialPortSerial { port })
+        Ok(SerialPortIO { port })
     }
 }
 
-impl Serial for SerialPortSerial {
+impl SerialIO for SerialPortIO {
     fn read_u8(&mut self) -> anyhow::Result<u8> {
         let mut buf = [0];
 

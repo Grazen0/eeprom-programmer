@@ -2,11 +2,11 @@ use std::string::FromUtf8Error;
 
 use derive_more::{Display, Error, From};
 
-use crate::serial::Serial;
+use crate::serial::SerialIO;
 
 #[derive(Debug, From, Display, Error)]
 pub enum ProtocolError {
-    #[display("Received a packet with invalid opcode: {_0}")]
+    #[display("Received a packet with invalid opcode: {_0:02X}")]
     InvalidPacketOpcode(#[error(not(source))] u8),
 
     #[display("A received string packet does not contain valid UTF-8")]
@@ -34,8 +34,10 @@ pub enum Packet {
     ByteMismatch {
         address: u16,
         expected: u8,
-        computed: u8,
+        found: u8,
     },
+    #[display("ByteRequest")]
+    ByteRequest,
 }
 
 pub fn calculate_checksum(data: &[u8]) -> u16 {
@@ -50,7 +52,7 @@ pub fn calculate_checksum(data: &[u8]) -> u16 {
     u16::from_ne_bytes([sum_1, sum_2])
 }
 
-pub fn read_packet(port: &mut dyn Serial) -> Result<Packet, ProtocolError> {
+pub fn read_packet(port: &mut dyn SerialIO) -> Result<Packet, ProtocolError> {
     let opcode = port.read_u8()?;
 
     match opcode {
@@ -81,15 +83,16 @@ pub fn read_packet(port: &mut dyn Serial) -> Result<Packet, ProtocolError> {
             Ok(Packet::ByteMismatch {
                 address,
                 expected,
-                computed,
+                found: computed,
             })
         }
+        0x07 => Ok(Packet::ByteRequest),
         _ => Err(ProtocolError::InvalidPacketOpcode(opcode)),
     }
 }
 
 pub fn send_data_chunk(
-    port: &mut impl Serial,
+    port: &mut impl SerialIO,
     data: &[u8],
     current_byte: &mut usize,
 ) -> anyhow::Result<()> {

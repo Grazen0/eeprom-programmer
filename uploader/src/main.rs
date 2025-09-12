@@ -1,16 +1,14 @@
-mod error;
+mod core;
 mod protocol;
 mod serial;
 
-use std::{fs::File, io::Write, path::PathBuf, time::Duration};
+use std::{io::Write, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand};
-use derive_more::Display;
 
 use crate::{
-    error::Error,
-    protocol::Packet,
-    serial::{Serial, SerialPortSerial},
+    core::{Effect, Error, State, UserCommand, UserOptions},
+    serial::SerialPortIO,
 };
 
 #[derive(Debug, Clone, Subcommand)]
@@ -28,11 +26,17 @@ enum Command {
     },
 
     /// Writes a file to the EEPROM
-    Write { filename: PathBuf },
+    Write {
+        filename: PathBuf,
+
+        #[arg(long)]
+        no_verify: bool,
+    },
 
     /// Verifies the EEPROM's data against a file
     Verify {
         filename: PathBuf,
+
         #[arg(long)]
         fix: bool,
     },
@@ -42,11 +46,11 @@ enum Command {
 #[derive(Debug, Clone, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Port where the Arduino is connected
-    #[arg(short, long)]
+    /// Path to the port where the board is connected
+    #[arg(short, long, default_value = "/dev/ttyUSB0")]
     port: String,
 
-    /// Baud rate used by the Arduino
+    /// Baud rate for the connection
     #[arg(short, long, default_value_t = 115200)]
     baud_rate: u32,
 
@@ -58,211 +62,104 @@ struct Args {
     command: Command,
 }
 
-#[derive(Debug, Display)]
-enum State {
-    #[display("Readying")]
-    Readying,
-
-    #[display("Reading")]
-    Reading {
-        progress: usize,
-        total: usize,
-        out_file: File,
-        out_path: PathBuf,
-    },
-
-    #[display("Writing")]
-    Writing { current_byte: usize, data: Vec<u8> },
-
-    #[display("Verifying")]
-    Verifying { current_byte: usize, data: Vec<u8> },
-
-    #[display("Finished")]
-    Finished(Result<(), Error>),
+impl From<Args> for UserOptions {
+    fn from(args: Args) -> Self {
+        Self {
+            command: match args.command {
+                Command::Read {
+                    out_file,
+                    start,
+                    end,
+                } => UserCommand::Read {
+                    out_filename: out_file,
+                    start,
+                    end,
+                },
+                Command::Write {
+                    filename,
+                    no_verify,
+                } => UserCommand::Write {
+                    in_filename: filename,
+                    verify: !no_verify,
+                },
+                Command::Verify { filename, fix } => UserCommand::Verify {
+                    in_filename: filename,
+                    fix,
+                },
+            },
+        }
+    }
 }
 
-const CHUNK_ACK: u8 = 0xFF;
+const BAR_LEN: usize = 20;
 
-fn state_transition(
-    state: State,
-    packet: Packet,
-    port: &mut impl Serial,
-    args: &Args,
-) -> Result<State, Error> {
-    let next_state = match (state, packet) {
-        (_, Packet::Ready) => match args.command {
-            Command::Read {
-                out_file: ref out_path,
-                start,
-                end,
-            } => {
-                if end < start {
-                    return Err(Error::InvalidRegionBounds);
-                }
-
-                println!("Initiating EEPROM read...");
-
-                port.write_u8(0x00)?;
-                port.write_u16(start)?;
-                port.write_u16(end)?;
-
-                State::Reading {
-                    progress: 0,
-                    total: (end - start).into(),
-                    out_file: File::create(out_path)?,
-                    out_path: out_path.clone(),
-                }
-            }
-            Command::Write { ref filename } => {
-                println!("Initiating EEPROM write...");
-
-                let data = std::fs::read(filename)?;
-
-                port.write_u8(0x01)?;
-
-                State::Writing {
-                    current_byte: 0,
-                    data,
-                }
-            }
-            Command::Verify { ref filename, fix } => {
-                println!("Initiating EEPROM verification...");
-
-                let data = std::fs::read(filename)?;
-
-                port.write_u8(0x02)?;
-                port.write_u8(fix.into())?;
-
-                State::Verifying {
-                    current_byte: 0,
-                    data,
-                }
-            }
-        },
-        (state, Packet::Print(s)) => {
+fn handle_effect(effect: Effect) -> std::io::Result<()> {
+    match effect {
+        Effect::PrintLn(s) => println!("{}", s),
+        Effect::Print(s) => {
             print!("{}", s);
             std::io::stdout().flush()?;
-            state
         }
-        (_, Packet::InvalidChecksum { expected, computed }) => {
-            State::Finished(Err(Error::InvalidPacketChecksum { expected, computed }))
-        }
+        Effect::Progress { done, total } => {
+            let filled = (done * BAR_LEN) / total;
+            let empty = BAR_LEN - filled;
 
-        (
-            State::Reading {
-                progress,
-                total,
-                mut out_file,
-                out_path,
-            },
-            Packet::Chunk {
-                data: chunk_data,
-                checksum,
-            },
-        ) => {
-            assert_eq!(
-                checksum,
-                protocol::calculate_checksum(&chunk_data),
-                "chunk checksum comparison failed"
+            print!(
+                "\rProgress: [{}{}] {}%",
+                "#".repeat(filled),
+                ".".repeat(empty),
+                (done * 100) / total
             );
-
-            let new_progress = progress + chunk_data.len();
-            out_file.write_all(&chunk_data)?;
-
-            port.write_u8(CHUNK_ACK)?;
-
-            print!("\rProgress: {}%", (new_progress * 100) / total);
             std::io::stdout().flush()?;
+        }
+        Effect::VerifyProgress {
+            done,
+            total,
+            mismatches,
+        } => {
+            let filled = (done * BAR_LEN) / total;
+            let empty = BAR_LEN - filled;
 
-            State::Reading {
-                progress: new_progress,
-                total,
-                out_file,
-                out_path,
-            }
-        }
-        (State::Reading { out_path, .. }, Packet::ReadEnd) => {
-            println!();
-            println!("Memory contents successfully dumped to {:?}", out_path);
-            State::Finished(Ok(()))
-        }
-
-        (State::Writing { current_byte, data }, Packet::ChunkRequest)
-            if current_byte >= data.len() =>
-        {
-            println!();
-            port.write_u8(0x00)?;
-            State::Finished(Ok(()))
-        }
-        (
-            State::Writing {
-                mut current_byte,
-                data,
-            },
-            Packet::ChunkRequest,
-        ) => {
-            protocol::send_data_chunk(port, &data, &mut current_byte)?;
-            State::Writing { current_byte, data }
-        }
-
-        (
-            state @ State::Verifying { .. },
-            Packet::ByteMismatch {
-                address,
-                expected,
-                computed,
-            },
-        ) => {
-            println!(
-                "Byte mismatch at 0x{:04X} (expected = 0x{:02X}, was = 0x{:02X})",
-                address, expected, computed
+            print!(
+                "\rProgress: [{}{}] {}%, mismatches: {}",
+                "#".repeat(filled),
+                ".".repeat(empty),
+                (done * 100) / total,
+                mismatches
             );
-            state
+            std::io::stdout().flush()?;
         }
-        (State::Verifying { current_byte, data }, Packet::ChunkRequest)
-            if current_byte >= data.len() =>
-        {
-            println!();
-            port.write_u8(0x00)?;
-            State::Finished(Ok(()))
-        }
-        (
-            State::Verifying {
-                mut current_byte,
-                data,
-            },
-            Packet::ChunkRequest,
-        ) => {
-            protocol::send_data_chunk(&mut *port, &data, &mut current_byte)?;
-            State::Verifying { current_byte, data }
-        }
+        Effect::ProgressEnd => println!(),
+    }
 
-        (state, packet) => State::Finished(Err(Error::UnexpectedPacket {
-            state_variant: state.to_string(),
-            packet,
-        })),
-    };
-
-    Ok(next_state)
+    Ok(())
 }
 
 fn run(args: Args) -> Result<(), Error> {
-    println!("Opening port...");
-    let mut port = SerialPortSerial::new(
+    println!("Opening serial port...");
+
+    let mut port = SerialPortIO::new(
         &args.port,
         args.baud_rate,
         Duration::from_millis(args.timeout),
     )?;
 
-    let mut state = State::Readying;
+    let user_opts = UserOptions::from(args);
+    let mut state = State::Idle;
 
     loop {
         let packet = protocol::read_packet(&mut port)?;
-        state = state_transition(state, packet, &mut port, &args)?;
+        let (new_state, effects) = state.transition(packet, &mut port, &user_opts)?;
 
-        if let State::Finished(result) = state {
+        for effect in effects {
+            handle_effect(effect)?;
+        }
+
+        if let State::Finished(result) = new_state {
             return result;
         }
+
+        state = new_state;
     }
 }
 
