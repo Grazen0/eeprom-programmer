@@ -223,7 +223,7 @@ void verify_eeprom(const bool fix)
 {
     uint16_t addr = 0;
     uint8_t chunk[0x100];
-    bool should_fix = false;
+    bool needs_fix = false;
 
     while (true) {
         Serial.write(Opcode_ChunkRequest);
@@ -259,14 +259,14 @@ void verify_eeprom(const bool fix)
                 Serial.write(expected);
                 Serial.write(actual);
 
-                should_fix = true;
+                needs_fix = true;
             }
 
             ++addr;
         }
     }
 
-    if (!fix)
+    if (!fix || !needs_fix)
         return;
 
     while (true) {
