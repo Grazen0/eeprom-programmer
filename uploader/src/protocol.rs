@@ -96,12 +96,12 @@ pub fn send_data_chunk(
     data: &[u8],
     current_byte: &mut usize,
 ) -> anyhow::Result<()> {
-    const CHUNK_SIZE: usize = 16;
+    const CHUNK_MAX_SIZE: usize = 16;
     let data_left = &data[*current_byte..];
 
-    let chunk = &data_left[..CHUNK_SIZE.min(data_left.len())];
+    let chunk = &data_left[..CHUNK_MAX_SIZE.min(data_left.len())];
 
-    port.write_u8(CHUNK_SIZE.try_into().unwrap())?;
+    port.write_u8(chunk.len().try_into().unwrap())?;
     port.write_u16(calculate_checksum(chunk))?;
     port.write_n(chunk)?;
     *current_byte += chunk.len();
