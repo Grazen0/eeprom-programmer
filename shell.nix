@@ -3,6 +3,7 @@
 
   eeprom-uploader,
   arduino-cli,
+  rust-analyzer,
   xxd,
 }:
 mkShell {
@@ -10,6 +11,7 @@ mkShell {
 
   packages = [
     arduino-cli
+    rust-analyzer
     xxd
   ];
 }
