@@ -2,6 +2,8 @@ enum Command : uint8_t {
     Command_Read = 0x00,
     Command_Write = 0x01,
     Command_Verify = 0x02,
+    Command_Lock = 0x03,
+    Command_Unlock = 0x04,
 };
 
 enum Opcode : uint8_t {
@@ -13,6 +15,8 @@ enum Opcode : uint8_t {
     Opcode_InvalidChecksum = 0x05,
     Opcode_ByteMismatch = 0x06,
     Opcode_ByteRequest = 0x07,
+    Opcode_LockFinish = 0x08,
+    Opcode_UnlockFinish = 0x09,
 };
 
 constexpr size_t DELAY_TIME = 2;
@@ -36,7 +40,6 @@ uint8_t read_data(const uint16_t addr)
     delayMicroseconds(20);
     const uint8_t value = PINL;
     digitalWrite(OUTPUT_ENABLE, HIGH);
-    delayMicroseconds(5);
 
     return value;
 }
@@ -49,9 +52,7 @@ void write_data(const uint16_t addr, const uint8_t value)
     PORTL = value;
 
     digitalWrite(WRITE_ENABLE, LOW);
-    delay(2);
     digitalWrite(WRITE_ENABLE, HIGH);
-    delayMicroseconds(5);
 }
 
 void write_data_careful(const uint16_t addr, const uint8_t value)
@@ -282,6 +283,27 @@ void verify_eeprom(const bool fix)
     }
 }
 
+void lock_eeprom()
+{
+    write_data(0x5555, 0xAA);
+    write_data(0x2AAA, 0x55);
+    write_data(0x5555, 0xA0);
+
+    Serial.write(Opcode_LockFinish);
+}
+
+void unlock_eeprom()
+{
+    write_data(0x5555, 0xAA);
+    write_data(0x2AAA, 0x55);
+    write_data(0x5555, 0x80);
+    write_data(0x5555, 0xAA);
+    write_data(0x2AAA, 0x55);
+    write_data(0x5555, 0x20);
+
+    Serial.write(Opcode_UnlockFinish);
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -311,16 +333,26 @@ void setup()
         read_eeprom(start, end);
         break;
     }
+
     case Command_Write: {
         const bool verify = serial_read_u8();
         write_eeprom(true);
         break;
     }
+
     case Command_Verify: {
         const bool fix = serial_read_u8();
         verify_eeprom(fix);
         break;
     }
+
+    case Command_Lock:
+        lock_eeprom();
+        break;
+
+    case Command_Unlock:
+        unlock_eeprom();
+        break;
     }
 
     digitalWrite(CHIP_ENABLE, HIGH);

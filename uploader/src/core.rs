@@ -51,6 +51,8 @@ pub enum UserCommand {
         in_filename: PathBuf,
         fix: bool,
     },
+    Lock,
+    Unlock,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,8 @@ pub enum StateKind {
     Verifying,
     Fixing,
     Finished,
+    Locking,
+    Unlocking,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +118,8 @@ pub enum State {
         mismatches: Vec<ByteMismatch>,
         current: usize,
     },
+    Locking,
+    Unlocking,
     Finished(Result<(), Error>),
 }
 
@@ -126,6 +132,8 @@ impl State {
             Self::Verifying { .. } => StateKind::Verifying,
             Self::Fixing { .. } => StateKind::Fixing,
             Self::Finished(_) => StateKind::Finished,
+            Self::Locking => StateKind::Locking,
+            Self::Unlocking => StateKind::Unlocking,
         }
     }
 
@@ -199,6 +207,18 @@ impl State {
                         mismatches: vec![],
                         fix,
                     }
+                }
+                UserCommand::Lock => {
+                    effects.push(Effect::PrintLn("Locking EEPROM...".to_owned()));
+
+                    port.write_u8(0x03)?;
+                    State::Locking
+                }
+                UserCommand::Unlock => {
+                    effects.push(Effect::PrintLn("Unlocking EEPROM...".to_owned()));
+
+                    port.write_u8(0x04)?;
+                    State::Unlocking
                 }
             },
             (state, Packet::Print(s)) => {
@@ -426,6 +446,16 @@ impl State {
                     mismatches,
                     current,
                 }
+            }
+
+            (State::Locking, Packet::LockFinish) => {
+                effects.push(Effect::PrintLn("EEPROM locked.".to_owned()));
+                State::Finished(Ok(()))
+            }
+
+            (State::Unlocking, Packet::UnlockFinish) => {
+                effects.push(Effect::PrintLn("EEPROM unlocked.".to_owned()));
+                State::Finished(Ok(()))
             }
 
             (state, packet) => State::Finished(Err(Error::UnexpectedPacket {

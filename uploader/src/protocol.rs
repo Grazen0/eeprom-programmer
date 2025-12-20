@@ -38,6 +38,10 @@ pub enum Packet {
     },
     #[display("ByteRequest")]
     ByteRequest,
+    #[display("LockFinish")]
+    LockFinish,
+    #[display("UnlockFinish")]
+    UnlockFinish,
 }
 
 pub fn calculate_checksum(data: &[u8]) -> u16 {
@@ -87,6 +91,8 @@ pub fn read_packet(port: &mut dyn SerialIO) -> Result<Packet, ProtocolError> {
             })
         }
         0x07 => Ok(Packet::ByteRequest),
+        0x08 => Ok(Packet::LockFinish),
+        0x09 => Ok(Packet::UnlockFinish),
         _ => Err(ProtocolError::InvalidPacketOpcode(opcode)),
     }
 }

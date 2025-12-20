@@ -40,6 +40,12 @@ enum Command {
         #[arg(long)]
         fix: bool,
     },
+
+    /// Runs the write protection enable algorithm
+    Lock,
+
+    /// Runs the write protection disable algorithm
+    Unlock,
 }
 
 /// A program to interact with AT28C EEPROM chips
@@ -86,6 +92,8 @@ impl From<Args> for UserOptions {
                     in_filename: filename,
                     fix,
                 },
+                Command::Unlock => UserCommand::Unlock,
+                Command::Lock => UserCommand::Lock,
             },
         }
     }
