@@ -1,6 +1,7 @@
 use std::{fs::File, io::Write, path::PathBuf};
 
 use derive_more::{Display, Error, From};
+use kinded::Kinded;
 
 use crate::{
     protocol::{self, Packet, ProtocolError},
@@ -60,18 +61,6 @@ pub struct UserOptions {
     pub command: UserCommand,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StateKind {
-    Idle,
-    Reading,
-    Writing,
-    Verifying,
-    Fixing,
-    Finished,
-    Locking,
-    Unlocking,
-}
-
 #[derive(Debug, Clone)]
 pub enum Effect {
     Print(String),
@@ -94,7 +83,7 @@ pub struct ByteMismatch {
     expected: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Kinded)]
 pub enum State {
     Idle,
     Reading {
@@ -124,19 +113,6 @@ pub enum State {
 }
 
 impl State {
-    pub fn kind(&self) -> StateKind {
-        match self {
-            Self::Idle => StateKind::Idle,
-            Self::Reading { .. } => StateKind::Reading,
-            Self::Writing { .. } => StateKind::Writing,
-            Self::Verifying { .. } => StateKind::Verifying,
-            Self::Fixing { .. } => StateKind::Fixing,
-            Self::Finished(_) => StateKind::Finished,
-            Self::Locking => StateKind::Locking,
-            Self::Unlocking => StateKind::Unlocking,
-        }
-    }
-
     pub fn transition(
         self,
         packet: Packet,
