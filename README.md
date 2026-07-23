@@ -2,21 +2,29 @@
 
 Code to program an EEPROM using an Arduino MEGA.
 
-## Protocol
+## Usage
 
-Data is sent from the Arduino to the uploader in **packets**. A packet begins
-with an **opcode** and may or may not include additional **parameters**
-depending on the opcode.
+Some usage examples:
 
-The following table shows the different packets the Arduino may send to the
-uploader:
+```bash
+# Unlock, write a file, and lock again
+eeprom-programmer \
+    'unlock' \
+    'write <file.bin>' \
+    'lock'
 
-|   Name    |                      Description                      | Opcode |          Parameters           |
-| :-------: | :---------------------------------------------------: | :----: | :---------------------------: |
-|  `Ready`  |   Signals that the board is ready to receive data.    | `0x00` |                               |
-|  `Print`  |           Prints a string to the terminal.            | `0x01` | `size: u16, str: [u8; size]`  |
-|  `Chunk`  | An incoming data chunk when using the `read` command. | `0x02` | `size: u16, data: [u8; size]` |
-| `ReadEnd` |     Signals that the `read` command has finished.     | `0x03` |                               |
+# Read the EEPROM's first 256 bytes into out.bin
+eeprom-programmer 'read out.bin --len=256'
+```
 
-> [!NOTE]
-> Parameters of type `u16` are sent in big-endian.
+The CLI supports the following commands:
+
+- `unlock`: Executes the software data protection (SDP) disable algorithm.
+- `lock`: Executes the SDP enable algorithm.
+- `read <FILE> [--start=<ADDR>] [--len=<NUM>]`: Dumps the EEPROM's contents to `<FILE>`.
+- `write <FILE>`: Writes `<FILE>` to the EEPROM starting at address 0.
+
+## References
+
+- [AT28C256 Datasheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf)
+- [Software Chip Erase](http://ww1.microchip.com/downloads/en/Appnotes/doc0544.pdf)
