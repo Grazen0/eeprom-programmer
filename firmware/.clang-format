@@ -16,7 +16,7 @@ AllowShortLoopsOnASingleLine: false
 AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakAfterReturnType: None
 AlwaysBreakBeforeMultilineStrings: false
-AlwaysBreakTemplateDeclarations: No
+AlwaysBreakTemplateDeclarations: Yes
 BinPackArguments: true
 BinPackParameters: true
 BraceWrapping:
@@ -39,7 +39,7 @@ BreakStringLiterals: false
 ColumnLimit: 80
 DerivePointerAlignment: false
 IncludeBlocks: Merge
-IndentCaseLabels: false
+IndentCaseLabels: true
 IndentGotoLabels: false
 IndentWidth: 4
 IndentWrappedFunctionNames: false
