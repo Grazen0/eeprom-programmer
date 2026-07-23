@@ -1,50 +1,102 @@
-enum Command : uint8_t {
-    Command_Read = 0x00,
-    Command_Write = 0x01,
-    Command_Verify = 0x02,
-    Command_Lock = 0x03,
-    Command_Unlock = 0x04,
-};
+static inline void serial_wait_available(size_t count)
+{
+    while (Serial.available() < count) {
+    }
+}
 
-enum Opcode : uint8_t {
-    Opcode_Ready = 0x00,
-    Opcode_Print = 0x01,
-    Opcode_Chunk = 0x02,
-    Opcode_ReadEnd = 0x03,
-    Opcode_ChunkRequest = 0x04,
-    Opcode_InvalidChecksum = 0x05,
-    Opcode_ByteMismatch = 0x06,
-    Opcode_ByteRequest = 0x07,
-    Opcode_LockFinish = 0x08,
-    Opcode_UnlockFinish = 0x09,
-};
+static inline u16 serial_read_u16()
+{
+    serial_wait_available(2);
 
-constexpr size_t DELAY_TIME = 2;
+    u8 buf[2];
+    Serial.readBytes(buf, 2);
+    return ((u16)buf[1] << 8) | (u16)buf[0];
+}
 
-constexpr uint8_t CHIP_ENABLE = 50;
-constexpr uint8_t OUTPUT_ENABLE = 51;
-constexpr uint8_t WRITE_ENABLE = 52;
+static inline u8 serial_read_u8()
+{
+    serial_wait_available(1);
+    return Serial.read();
+}
 
-void set_address(const uint16_t addr)
+static inline void serial_write_u16(u16 value)
+{
+    Serial.write(value & 0xFF);
+    Serial.write((value >> 8) & 0xFF);
+}
+
+static constexpr u8 PACKET_DELIM = 0;
+
+// Source:
+// https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing#Implementation
+static size_t cobs_encode(const u8 data[], size_t length, u8 buffer[])
+{
+    u8 *encode = buffer;
+    u8 *codep = encode++;
+    u8 code = 1;
+
+    for (const u8 *byte = data; length--; ++byte) {
+        if (*byte != PACKET_DELIM)
+            *encode++ = *byte, ++code;
+
+        if (*byte == PACKET_DELIM || code == 0xFF) {
+            *codep = code, code = 1, codep = encode;
+            if (*byte == PACKET_DELIM || length)
+                ++encode;
+        }
+    }
+    *codep = code;
+
+    return (size_t)(encode - buffer);
+}
+
+// Source:
+// https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing#Implementation
+static size_t cobs_decode(const u8 buffer[], size_t length, u8 data[])
+{
+    const u8 *byte = buffer;
+    u8 *decode = data;
+
+    for (u8 code = 0xFF, block = 0; byte < buffer + length; --block) {
+        if (block) {
+            *decode++ = *byte++;
+        } else {
+            block = *byte++;
+            if (block && (code != 0xFF))
+                *decode++ = 0;
+
+            code = block;
+            if (code == PACKET_DELIM)
+                break;
+        }
+    }
+
+    return (size_t)(decode - data);
+}
+
+static constexpr u8 CHIP_ENABLE = 50;
+static constexpr u8 OUTPUT_ENABLE = 51;
+static constexpr u8 WRITE_ENABLE = 52;
+
+static void set_address(u16 addr)
 {
     PORTC = addr & 0xFF;
     PORTA = (addr >> 8) & 0xFF;
 }
 
-uint8_t read_data(const uint16_t addr)
+static u8 read_data(u16 addr)
 {
     DDRL = B00000000;
     set_address(addr);
 
     digitalWrite(OUTPUT_ENABLE, LOW);
-    delayMicroseconds(20);
-    const uint8_t value = PINL;
+    u8 value = PINL;
     digitalWrite(OUTPUT_ENABLE, HIGH);
 
     return value;
 }
 
-void write_data(const uint16_t addr, const uint8_t value)
+static void write_data(u16 addr, u8 value)
 {
     DDRL = B11111111;
     set_address(addr);
@@ -55,7 +107,7 @@ void write_data(const uint16_t addr, const uint8_t value)
     digitalWrite(WRITE_ENABLE, HIGH);
 }
 
-void write_data_careful(const uint16_t addr, const uint8_t value)
+static void write_data_careful(u16 addr, u8 value)
 {
     DDRL = B11111111;
     set_address(addr);
@@ -68,231 +120,14 @@ void write_data_careful(const uint16_t addr, const uint8_t value)
     delayMicroseconds(50);
 }
 
-void print_u16(const uint16_t x)
-{
-    if (x < 0x10)
-        Serial.print("000");
-    else if (x < 0x100)
-        Serial.print("00");
-    else if (x < 0x1000)
-        Serial.print("0");
-
-    Serial.print(x, HEX);
-}
-
-void print_u8(const uint8_t x)
-{
-    if (x < 0x10)
-        Serial.print("0");
-
-    Serial.print(x, HEX);
-}
-
-uint16_t serial_read_u16()
-{
-    while (Serial.available() < 2)
-        ;
-
-    uint8_t buf[2];
-    Serial.readBytes(buf, 2);
-    return ((uint16_t)buf[0] << 8) | (uint16_t)buf[1];
-}
-
-uint8_t serial_read_u8()
-{
-    while (Serial.available() < 1)
-        ;
-    return Serial.read();
-}
-
-void serial_write_u16(const uint16_t value)
-{
-    Serial.write((uint8_t)((value >> 8) & 0xFF));
-    Serial.write((uint8_t)(value & 0xFF));
-}
-
-void serial_print(const char str[])
-{
-    Serial.write(Opcode_Print);
-
-    const uint16_t len = strlen(str);
-    serial_write_u16(len);
-    Serial.print(str);
-}
-
-const uint8_t CHUNK_ACK = 0xFF;
-constexpr size_t CHUNK_SIZE = 32;
-
-uint16_t calculate_checksum(const uint8_t data[], const size_t len)
-{
-    uint8_t sum_1 = 0;
-    uint8_t sum_2 = 0;
-
-    for (size_t i = 0; i < len; ++i) {
-        sum_1 += data[i];
-        sum_2 += sum_1;
-    }
-
-    return ((uint16_t)sum_2 << 8) | (uint16_t)sum_1;
-}
-
-void read_eeprom(const uint16_t start, const uint16_t end)
-{
-    const size_t chunk_count = (end - start) / CHUNK_SIZE;
-
-    for (size_t c = 0; c < chunk_count; ++c) {
-
-        const uint16_t chunk_start = start + (c * CHUNK_SIZE);
-        const uint16_t chunk_end = chunk_start + CHUNK_SIZE;
-
-        uint8_t chunk[CHUNK_SIZE] = {};
-
-        for (uint16_t i = 0; i < CHUNK_SIZE; ++i)
-            chunk[i] = read_data(chunk_start + i);
-
-        Serial.write(Opcode_Chunk);
-        Serial.write(CHUNK_SIZE);
-        serial_write_u16(calculate_checksum(chunk, CHUNK_SIZE));
-
-        Serial.write(chunk, CHUNK_SIZE);
-
-        // Wait for chunk ACK
-        while (serial_read_u8() != CHUNK_ACK)
-            ;
-    }
-
-    const uint8_t remaining_bytes = (end - start) % CHUNK_SIZE;
-
-    if (remaining_bytes != 0) {
-        const uint16_t remainder_start = end - remaining_bytes;
-
-        uint8_t chunk[CHUNK_SIZE] = {};
-
-        for (uint16_t i = 0; i < remaining_bytes; ++i)
-            chunk[i] = read_data(remainder_start + i);
-
-        Serial.write(Opcode_Chunk);
-        Serial.write(remaining_bytes);
-        serial_write_u16(calculate_checksum(chunk, remaining_bytes));
-
-        Serial.write(chunk, remaining_bytes);
-    }
-
-    Serial.write(Opcode_ReadEnd);
-}
-
-void write_eeprom(const bool verify)
-{
-    uint16_t addr = 0;
-    uint8_t chunk[0x100];
-
-    while (true) {
-        Serial.write(Opcode_ChunkRequest);
-
-        const size_t chunk_size = serial_read_u8();
-
-        if (chunk_size == 0)
-            break;
-
-        const uint16_t checksum = serial_read_u16();
-
-        while (Serial.available() < chunk_size)
-            ;
-        Serial.readBytes(chunk, chunk_size);
-
-        const uint16_t computed_checksum =
-            calculate_checksum(chunk, chunk_size);
-
-        if (checksum != computed_checksum) {
-            Serial.write(Opcode_InvalidChecksum);
-            serial_write_u16(checksum);
-            serial_write_u16(computed_checksum);
-            break;
-        }
-
-        for (uint16_t i = 0; i < chunk_size; ++i) {
-            write_data(addr, chunk[i]);
-            ++addr;
-        }
-    }
-
-    if (verify)
-        verify_eeprom(true);
-}
-
-void verify_eeprom(const bool fix)
-{
-    uint16_t addr = 0;
-    uint8_t chunk[0x100];
-    bool needs_fix = false;
-
-    while (true) {
-        Serial.write(Opcode_ChunkRequest);
-
-        const size_t chunk_size = serial_read_u8();
-
-        if (chunk_size == 0)
-            break;
-
-        const uint16_t checksum = serial_read_u16();
-
-        while (Serial.available() < chunk_size)
-            ;
-        Serial.readBytes(chunk, chunk_size);
-
-        const uint16_t computed_checksum =
-            calculate_checksum(chunk, chunk_size);
-
-        if (checksum != computed_checksum) {
-            Serial.write(Opcode_InvalidChecksum);
-            serial_write_u16(checksum);
-            serial_write_u16(computed_checksum);
-            break;
-        }
-
-        for (uint16_t i = 0; i < chunk_size; ++i) {
-            const uint8_t expected = chunk[i];
-            const uint8_t actual = read_data(addr);
-
-            if (actual != expected) {
-                Serial.write(Opcode_ByteMismatch);
-                serial_write_u16(addr);
-                Serial.write(expected);
-                Serial.write(actual);
-
-                needs_fix = true;
-            }
-
-            ++addr;
-        }
-    }
-
-    if (!fix || !needs_fix)
-        return;
-
-    while (true) {
-        Serial.write(Opcode_ByteRequest);
-
-        const uint16_t addr = serial_read_u16();
-
-        if (addr == 0xFFFF)
-            break;
-
-        const uint16_t value = serial_read_u8();
-        write_data_careful(addr, value);
-    }
-}
-
-void lock_eeprom()
+static void lock_eeprom()
 {
     write_data(0x5555, 0xAA);
     write_data(0x2AAA, 0x55);
     write_data(0x5555, 0xA0);
-
-    Serial.write(Opcode_LockFinish);
 }
 
-void unlock_eeprom()
+static void unlock_eeprom()
 {
     write_data(0x5555, 0xAA);
     write_data(0x2AAA, 0x55);
@@ -300,8 +135,78 @@ void unlock_eeprom()
     write_data(0x5555, 0xAA);
     write_data(0x2AAA, 0x55);
     write_data(0x5555, 0x20);
+}
 
-    Serial.write(Opcode_UnlockFinish);
+static constexpr size_t COBS_BUF_CAPACITY = SERIAL_RX_BUFFER_SIZE;
+static u8 cobs_buf[COBS_BUF_CAPACITY] = {};
+
+static bool recv_packet(u8 packet[], size_t &packet_len)
+{
+    size_t i = 0;
+    u8 b = 0;
+
+    while ((b = serial_read_u8()) != 0) {
+        if (i == COBS_BUF_CAPACITY) {
+            // wait for rest of packet to arrive
+            while (serial_read_u8() != 0) {
+            }
+
+            return false;
+        }
+
+        cobs_buf[i++] = b;
+    }
+
+    packet_len = cobs_decode(cobs_buf, i, packet);
+    return true;
+}
+
+static void send_packet(const u8 data[], size_t n)
+{
+    size_t n_encoded = cobs_encode(data, n, cobs_buf);
+
+    Serial.write(cobs_buf, n_encoded);
+    Serial.write(PACKET_DELIM);
+}
+
+enum HostOp : u8 {
+    HOST_OP_READ = 0,
+    HOST_OP_WRITE,
+    HOST_OP_LOCK,
+    HOST_OP_UNLOCK,
+    HOST_OP_EXIT = 255,
+};
+
+enum DevOp : u8 {
+    DEV_OP_ERR = 0,
+    DEV_OP_READY,
+    DEV_OP_OK,
+    DEV_OP_BYTES,
+};
+
+enum DevError : u8 {
+    ERR_PACKET_TOO_LONG = 0,
+    ERR_PACKET_EMPTY,
+    ERR_INVALID_OP,
+    ERR_MALFORMED_MESSAGE,
+};
+
+static constexpr size_t PACKET_CAPACITY = SERIAL_RX_BUFFER_SIZE;
+static u8 packet[PACKET_CAPACITY] = {};
+
+static const u8 PACKET_READY[] = {DEV_OP_READY};
+static const u8 PACKET_OK[] = {DEV_OP_OK};
+static const u8 PACKET_ERR_INVALID_OP[] = {DEV_OP_ERR, ERR_INVALID_OP};
+static const u8 PACKET_ERR_PACKET_EMPTY[] = {DEV_OP_ERR, ERR_PACKET_EMPTY};
+static const u8 PACKET_ERR_PACKET_TOO_LONG[] = {DEV_OP_ERR,
+                                                ERR_PACKET_TOO_LONG};
+static const u8 PACKET_ERR_MALFORMED_MESSAGE[] = {DEV_OP_ERR,
+                                                  ERR_MALFORMED_MESSAGE};
+
+template <size_t N>
+static inline void send_packet_const(const u8 (&packet)[N])
+{
+    send_packet(packet, N);
 }
 
 void setup()
@@ -310,49 +215,118 @@ void setup()
     DDRC = B11111111;
     DDRA = B11111111;
 
+    digitalWrite(OUTPUT_ENABLE, HIGH);
+    digitalWrite(WRITE_ENABLE, HIGH);
+    digitalWrite(CHIP_ENABLE, HIGH);
+
     pinMode(CHIP_ENABLE, OUTPUT);
     pinMode(OUTPUT_ENABLE, OUTPUT);
     pinMode(WRITE_ENABLE, OUTPUT);
 
-    digitalWrite(OUTPUT_ENABLE, HIGH);
-    digitalWrite(WRITE_ENABLE, HIGH);
-    digitalWrite(CHIP_ENABLE, LOW);
-
-    while (!Serial)
-        ;
-
     delay(50);
-    Serial.write(Opcode_Ready);
+    digitalWrite(CHIP_ENABLE, LOW);
+    delay(200);
 
-    const uint8_t command = serial_read_u8();
+    send_packet_const(PACKET_READY);
 
-    switch (command) {
-    case Command_Read: {
-        const uint16_t start = serial_read_u16();
-        const uint16_t end = serial_read_u16();
-        read_eeprom(start, end);
-        break;
-    }
+    bool exit = false;
 
-    case Command_Write: {
-        const bool verify = serial_read_u8();
-        write_eeprom(true);
-        break;
-    }
+    while (!exit) {
+        size_t packet_len = 0;
 
-    case Command_Verify: {
-        const bool fix = serial_read_u8();
-        verify_eeprom(fix);
-        break;
-    }
+        if (!recv_packet(packet, packet_len)) {
+            send_packet_const(PACKET_ERR_PACKET_TOO_LONG);
+            continue;
+        }
 
-    case Command_Lock:
-        lock_eeprom();
-        break;
+        if (packet_len == 0) {
+            send_packet_const(PACKET_ERR_PACKET_EMPTY);
+            continue;
+        }
 
-    case Command_Unlock:
-        unlock_eeprom();
-        break;
+        u8 op = packet[0];
+        u8 *args = &packet[1];
+        size_t args_len = packet_len - 1;
+
+        switch (op) {
+            case HOST_OP_EXIT:
+                if (args_len != 0) {
+                    send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
+                    continue;
+                }
+
+                exit = true;
+                send_packet_const(PACKET_OK);
+                break;
+
+            case HOST_OP_UNLOCK:
+                if (args_len != 0) {
+                    send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
+                    continue;
+                }
+
+                unlock_eeprom();
+
+                delay(20);
+                send_packet_const(PACKET_OK);
+                break;
+
+            case HOST_OP_LOCK:
+                if (args_len != 0) {
+                    send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
+                    continue;
+                }
+
+                lock_eeprom();
+
+                delay(20);
+                send_packet_const(PACKET_OK);
+                break;
+
+            case HOST_OP_WRITE: {
+                if (args_len < 2) {
+                    send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
+                    continue;
+                }
+
+                u16 start = (u16)args[0] | ((u16)args[1] << 8);
+                u8 *data = &args[2];
+                size_t data_len = args_len - 2;
+
+                for (size_t i = 0; i < data_len; ++i)
+                    write_data(start + i, data[i]);
+
+                delay(20);
+                send_packet_const(PACKET_OK);
+                break;
+            }
+
+            case HOST_OP_READ: {
+                if (args_len != 3) {
+                    send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
+                    continue;
+                }
+
+                u16 start = (u16)args[0] | ((u16)args[1] << 8);
+                u8 len = args[2];
+
+                size_t resp_len = len + 1;
+                u8 resp[resp_len];
+                resp[0] = DEV_OP_BYTES;
+
+                u8 *out_data = &resp[1];
+
+                for (size_t i = 0; i < len; ++i)
+                    out_data[i] = read_data(start + i);
+
+                delay(20);
+                send_packet(resp, resp_len);
+                break;
+            }
+
+            default:
+                send_packet_const(PACKET_ERR_INVALID_OP);
+        }
     }
 
     digitalWrite(CHIP_ENABLE, HIGH);
