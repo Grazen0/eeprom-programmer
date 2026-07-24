@@ -30,10 +30,10 @@ namespace
         size_t i = 0;
         u8 b = 0;
 
-        while ((b = serial_read_u8()) != 0) {
+        while ((b = serial_read_u8()) != PACKET_DELIM) {
             if (i == cobs_buf.size()) {
                 // wait for rest of packet to arrive
-                while (serial_read_u8() != 0) {
+                while (serial_read_u8() != PACKET_DELIM) {
                 }
 
                 return std::nullopt;
