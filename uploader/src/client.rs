@@ -26,6 +26,7 @@ mod dev_error {
     pub const PACKET_EMPTY: u8 = 1;
     pub const INVALID_OP: u8 = 2;
     pub const MALFORMED_MESSAGE: u8 = 3;
+    pub const WRITE_TIMEOUT: u8 = 4;
 }
 
 const PACKET_DELIM: u8 = 0;
@@ -75,6 +76,8 @@ pub enum DevError {
     InvalidOp,
     #[display("Device received a malformed message")]
     MalformedMessage,
+    #[display("A write operation timed out")]
+    WriteTimeout,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Display)]
@@ -106,6 +109,7 @@ impl TryFrom<&[u8]> for DevMessage {
                     dev_error::PACKET_EMPTY => DevError::PacketEmpty,
                     dev_error::INVALID_OP => DevError::InvalidOp,
                     dev_error::MALFORMED_MESSAGE => DevError::MalformedMessage,
+                    dev_error::WRITE_TIMEOUT => DevError::WriteTimeout,
                     e => return Err(ParseDevMessageError::InvalidErr(e)),
                 };
 
@@ -263,5 +267,45 @@ impl Drop for Client {
         {
             eprintln!("Client did not exit successfully: {:?}", e);
         }
+    }
+}
+
+pub struct BlockReader<'a> {
+    client: &'a mut Client,
+    start: u16,
+    block_size: u8,
+    data: Vec<u8>,
+}
+
+impl<'a> BlockReader<'a> {
+    pub fn new(client: &'a mut Client, block_size: u8) -> Self {
+        Self {
+            client,
+            start: 9,
+            data: vec![],
+            block_size,
+        }
+    }
+
+    fn contains_addr(&self, addr: u16) -> bool {
+        self.start <= addr && (addr as usize) < (self.start as usize) + self.data.len()
+    }
+
+    fn read_from_block(&self, addr: u16) -> Option<u8> {
+        self.contains_addr(addr)
+            .then(|| self.data[(addr - self.start) as usize])
+    }
+
+    fn load_block(&mut self, addr: u16) -> ClientResult<()> {
+        self.data = self.client.read_data(addr, self.block_size)?;
+        self.start = addr;
+        Ok(())
+    }
+
+    pub fn read(&mut self, addr: u16) -> ClientResult<u8> {
+        self.read_from_block(addr).map(Ok).unwrap_or_else(|| {
+            self.load_block(addr)?;
+            Ok(self.read_from_block(addr).unwrap())
+        })
     }
 }
