@@ -1,6 +1,6 @@
 # EEPROM Programmer
 
-Code to program an EEPROM using an Arduino MEGA.
+Code to program an AT28C256 EEPROM using an Arduino MEGA.
 
 ## Usage
 
@@ -33,3 +33,4 @@ The CLI supports the following commands:
 
 - [AT28C256 Datasheet](https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf)
 - [Software Chip Erase](http://ww1.microchip.com/downloads/en/Appnotes/doc0544.pdf)
+- [Parallel EEPROM Data Protection](http://ww1.microchip.com/downloads/en/Appnotes/DOC0543.PDF)
