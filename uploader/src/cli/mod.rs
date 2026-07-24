@@ -15,7 +15,7 @@ mod error;
 mod output;
 mod parser;
 
-const CHUNK_SIZE: u64 = 48;
+const CHUNK_SIZE: u64 = 248;
 const ROM_CAPACITY: u64 = 0x8000;
 
 pub use error::*;
