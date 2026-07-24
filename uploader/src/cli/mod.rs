@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     cli::output::ProgressMeter,
-    client::{BlockReader, Client},
+    client::{BlockReader, Client, ClientResult},
 };
 
 mod error;
@@ -37,6 +37,9 @@ struct WriteArgs {
     #[arg(long)]
     no_verify: bool,
 
+    #[arg(long, default_value_t = 5)]
+    verify_attempts: usize,
+
     file: PathBuf,
 }
 
@@ -44,6 +47,9 @@ struct WriteArgs {
 struct VerifyArgs {
     #[arg(long)]
     fix: bool,
+
+    #[arg(long, default_value_t = 5)]
+    max_attempts: usize,
 
     file: PathBuf,
 }
@@ -56,6 +62,14 @@ struct UnlockArgs {}
 
 fn cmd_read(client: &mut Client, cmd: &[String]) -> CliResult<()> {
     let args = ReadArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+
+    if args.start as u64 + args.len > ROM_CAPACITY {
+        return Err(CliError::RangeOutOfBounds {
+            start: args.start,
+            len: args.len,
+        });
+    }
+
     let mut out_file = File::create(&args.output)?;
     let mut read = 0_u64;
 
@@ -70,14 +84,14 @@ fn cmd_read(client: &mut Client, cmd: &[String]) -> CliResult<()> {
             }
 
             let to_read = CHUNK_SIZE.min(args.len - read);
-            let chunk = client.read_data(args.start + u16::try_from(read)?, to_read.try_into()?)?;
+            let chunk = client.read(args.start + u16::try_from(read)?, to_read.try_into()?)?;
 
             out_file.write_all(&chunk)?;
             read += chunk.len() as u64;
         }
     }
 
-    println!("  {} bytes read to {:?}.", read, args.output);
+    println!("  Data dumped to {:?}.", args.output);
     Ok(())
 }
 
@@ -111,16 +125,17 @@ fn cmd_write(client: &mut Client, cmd: &[String]) -> CliResult<()> {
 
             assert!(written + buf_len - 1 < ROM_CAPACITY as usize);
 
-            client.write_data(&buf, written as u16)?;
+            client.write(written as u16, &buf[..buf_len])?;
             written += buf_len;
         }
     }
 
-    println!("  {} bytes written.", written);
-
-    if !args.no_verify {
-        verify(client, &mut file, true)?;
+    if args.no_verify {
+        println!("  Done.");
+    } else {
+        verify_fix(client, &mut file, args.verify_attempts)?;
     }
+
     Ok(())
 }
 
@@ -130,7 +145,27 @@ struct Cell {
     val: u8,
 }
 
-fn verify(client: &mut Client, file: &mut File, fix: bool) -> CliResult<()> {
+fn fix_mismatches(client: &mut Client, mismatches: &[Cell]) -> ClientResult<()> {
+    let mut meter = ProgressMeter::new("Fixing", mismatches.len() as u64);
+    let mut i = 0;
+
+    loop {
+        meter.update(i as u64)?;
+
+        if i >= mismatches.len() {
+            break;
+        }
+
+        let Cell { addr, val } = mismatches[i];
+
+        client.write(addr, &[val])?;
+        i += 1;
+    }
+
+    Ok(())
+}
+
+fn count_mismatches(client: &mut Client, file: &mut File) -> CliResult<Vec<Cell>> {
     let file_len = file.metadata()?.len();
     if file_len > ROM_CAPACITY {
         return Err(CliError::FileTooLarge {
@@ -171,32 +206,31 @@ fn verify(client: &mut Client, file: &mut File, fix: bool) -> CliResult<()> {
         }
     }
 
-    if mismatches.is_empty() {
-        println!("  No mismatches found.");
-    } else if fix {
-        {
-            let mut meter = ProgressMeter::new("Fixing", mismatches.len() as u64);
-            let mut i = 0;
+    Ok(mismatches)
+}
 
-            loop {
-                meter.update(i as u64)?;
+fn verify_fix(client: &mut Client, file: &mut File, max_attempts: usize) -> CliResult<()> {
+    let mut attempts_left = max_attempts;
 
-                if i >= mismatches.len() {
-                    break;
-                }
-
-                let Cell { addr, val } = mismatches[i];
-
-                client.write_data(&[val], addr)?;
-                i += 1;
-            }
+    loop {
+        let mismatches = count_mismatches(client, file)?;
+        if mismatches.is_empty() {
+            break;
         }
 
-        verify(client, file, fix)?;
-    } else {
-        println!("{} mismatches found.", mismatches.len());
+        if attempts_left == 0 {
+            return Err(CliError::FixFailed(max_attempts));
+        }
+
+        fix_mismatches(client, &mismatches)?;
+        attempts_left -= 1;
     }
 
+    if attempts_left == max_attempts {
+        println!("  No mismatches found.");
+    } else {
+        println!("  Done.");
+    }
     Ok(())
 }
 
@@ -206,7 +240,12 @@ fn cmd_verify(client: &mut Client, cmd: &[String]) -> CliResult<()> {
     println!("  Opening {:?}...", args.file);
     let mut file = File::open(args.file)?;
 
-    verify(client, &mut file, args.fix)?;
+    if args.fix && args.max_attempts > 0 {
+        verify_fix(client, &mut file, args.max_attempts)?;
+    } else {
+        let mismatches = count_mismatches(client, &mut file)?;
+        println!("  Found {} mismatches.", mismatches.len());
+    }
     Ok(())
 }
 

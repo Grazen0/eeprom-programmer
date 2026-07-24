@@ -32,6 +32,15 @@ pub enum CliError {
         got: u64,
         max: u64,
     },
+
+    #[display("Range out of bounds for EEPROM (0x{:04X} - 0x{:04X})", start, *start as u64 + len)]
+    RangeOutOfBounds {
+        start: u16,
+        len: u64,
+    },
+
+    #[display("Failed to fix in {_0} attempts.")]
+    FixFailed(#[error(ignore)] usize),
 }
 
 pub type CliResult<T> = Result<T, CliError>;

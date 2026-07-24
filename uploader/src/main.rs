@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     for (i, cmd) in cmds.iter().enumerate() {
-        print!("{}", "=".repeat(48));
+        print!("{}", "=".repeat(64));
         println!("\r({}) {} ", i + 1, cmd);
         println!();
         cli::exec_cmd(&mut client, cmd)?;

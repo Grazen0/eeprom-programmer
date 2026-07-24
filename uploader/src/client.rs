@@ -160,7 +160,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn read_data(&mut self, start: u16, len: u8) -> ClientResult<Vec<u8>> {
+    pub fn read(&mut self, start: u16, len: u8) -> ClientResult<Vec<u8>> {
         self.send_message(&HostMessage::Read { start, len })?;
 
         let resp = self.recv_message()?;
@@ -171,7 +171,7 @@ impl Client {
         Ok(data)
     }
 
-    pub fn write_data(&mut self, data: &[u8], start: u16) -> ClientResult<()> {
+    pub fn write(&mut self, start: u16, data: &[u8]) -> ClientResult<()> {
         self.send_message(&HostMessage::Write {
             data: data.to_vec(),
             start,
@@ -297,7 +297,7 @@ impl<'a> BlockReader<'a> {
     }
 
     fn load_block(&mut self, addr: u16) -> ClientResult<()> {
-        self.data = self.client.read_data(addr, self.block_size)?;
+        self.data = self.client.read(addr, self.block_size)?;
         self.start = addr;
         Ok(())
     }

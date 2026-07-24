@@ -44,6 +44,6 @@ impl ProgressMeter {
 
 impl Drop for ProgressMeter {
     fn drop(&mut self) {
-        println!();
+        let _ = writeln!(self.stdout);
     }
 }
