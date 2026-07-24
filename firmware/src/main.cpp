@@ -5,10 +5,13 @@
 #include <optional>
 #include <span>
 
-#define concat_u16(LO, HI) (static_cast<u16>(LO) | (static_cast<u16>(HI) << 8))
-
 namespace
 {
+    constexpr u16 concat_u16(u8 lo, u8 hi)
+    {
+        return static_cast<u16>(lo) | (static_cast<u16>(hi) << 8);
+    }
+
     u8 serial_read_u8()
     {
         while (Serial.available() < 1) {
