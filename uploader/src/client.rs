@@ -6,11 +6,11 @@ use serialport::SerialPort;
 use crate::cobs;
 
 mod host_op {
-    pub const EXIT: u8 = 0;
-    pub const READ: u8 = 1;
-    pub const WRITE: u8 = 2;
-    pub const LOCK: u8 = 3;
-    pub const UNLOCK: u8 = 4;
+    pub const READ: u8 = 0;
+    pub const WRITE: u8 = 1;
+    pub const LOCK: u8 = 2;
+    pub const UNLOCK: u8 = 3;
+    pub const EXIT: u8 = 255;
 }
 
 mod dev_op {

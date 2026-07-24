@@ -1,201 +1,204 @@
 #include "cobs.hpp"
 #include "eeprom.hpp"
 #include <Arduino.h>
+#include <array>
+#include <optional>
+#include <span>
 
-#define countof(ARR) (sizeof(ARR) / sizeof((ARR)[0]))
+#define concat_u16(LO, HI) (static_cast<u16>(LO) | (static_cast<u16>(HI) << 8))
 
-static u8 serial_read_u8()
+namespace
 {
-    while (Serial.available() < 1) {
-    }
-
-    return Serial.read();
-}
-
-static constexpr u8 PACKET_DELIM = 0;
-
-static constexpr size_t COBS_BUF_CAPACITY = SERIAL_RX_BUFFER_SIZE;
-static u8 cobs_buf[COBS_BUF_CAPACITY] = {};
-
-static bool recv_packet(u8 packet[], size_t &packet_len)
-{
-    size_t i = 0;
-    u8 b = 0;
-
-    while ((b = serial_read_u8()) != 0) {
-        if (i == COBS_BUF_CAPACITY) {
-            // wait for rest of packet to arrive
-            while (serial_read_u8() != 0) {
-            }
-
-            return false;
+    u8 serial_read_u8()
+    {
+        while (Serial.available() < 1) {
         }
 
-        cobs_buf[i++] = b;
+        return Serial.read();
     }
 
-    packet_len = cobs::decode<PACKET_DELIM>(cobs_buf, i, packet);
-    return true;
-}
+    constexpr u8 PACKET_DELIM = 0;
 
-static void send_packet(const u8 data[], size_t n)
-{
-    size_t n_encoded = cobs::encode<PACKET_DELIM>(data, n, cobs_buf);
+    std::array<u8, SERIAL_RX_BUFFER_SIZE> cobs_buf;
 
-    Serial.write(cobs_buf, n_encoded);
-    Serial.write(PACKET_DELIM);
-}
+    // returns std::nullopt if received packet was too long
+    std::optional<std::span<u8>> recv_packet(std::span<u8> buf)
+    {
+        size_t i = 0;
+        u8 b = 0;
 
-enum HostOp : u8 {
-    HOST_OP_EXIT = 0,
-    HOST_OP_READ,
-    HOST_OP_WRITE,
-    HOST_OP_LOCK,
-    HOST_OP_UNLOCK,
-};
+        while ((b = serial_read_u8()) != 0) {
+            if (i == cobs_buf.size()) {
+                // wait for rest of packet to arrive
+                while (serial_read_u8() != 0) {
+                }
 
-enum DevOp : u8 {
-    DEV_OP_ERR = 0,
-    DEV_OP_READY,
-    DEV_OP_OK,
-    DEV_OP_BYTES,
-};
+                return std::nullopt;
+            }
 
-enum DevError : u8 {
-    ERR_PACKET_TOO_LONG = 0,
-    ERR_PACKET_EMPTY,
-    ERR_INVALID_OP,
-    ERR_MALFORMED_MESSAGE,
-    ERR_WRITE_TIMEOUT,
-};
+            cobs_buf.at(i++) = b;
+        }
 
-static constexpr size_t PACKET_BUF_CAPACITY = SERIAL_RX_BUFFER_SIZE;
-static u8 packet_buf[PACKET_BUF_CAPACITY] = {};
+        size_t packet_len =
+            cobs::decode<PACKET_DELIM>(std::span{cobs_buf.data(), i}, buf);
 
-static const u8 PACKET_READY[] = {DEV_OP_READY};
-static const u8 PACKET_OK[] = {DEV_OP_OK};
-static const u8 PACKET_ERR_INVALID_OP[] = {DEV_OP_ERR, ERR_INVALID_OP};
-static const u8 PACKET_ERR_PACKET_EMPTY[] = {DEV_OP_ERR, ERR_PACKET_EMPTY};
-static const u8 PACKET_ERR_PACKET_TOO_LONG[] = {DEV_OP_ERR,
-                                                ERR_PACKET_TOO_LONG};
-static const u8 PACKET_ERR_MALFORMED_MESSAGE[] = {DEV_OP_ERR,
-                                                  ERR_MALFORMED_MESSAGE};
-static const u8 PACKET_ERR_WRITE_TIMEOUT[] = {DEV_OP_ERR, ERR_WRITE_TIMEOUT};
-
-template<size_t N>
-static inline void send_packet_const(const u8 (&packet)[N])
-{
-    send_packet(packet, N);
-}
-
-struct State {
-    bool exit;
-};
-
-static void cmd_exit(const u8 args[], size_t args_len, State &state)
-{
-    if (args_len != 0) {
-        send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
-        return;
+        return std::span{buf.data(), packet_len};
     }
 
-    state.exit = true;
-    send_packet_const(PACKET_OK);
-}
+    void send_packet(std::span<const u8> packet)
+    {
+        size_t n_encoded = cobs::encode<PACKET_DELIM>(packet, cobs_buf);
 
-static void cmd_unlock(const u8 args[], size_t args_len, struct State &state)
-{
-    if (args_len != 0) {
-        send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
-        return;
+        Serial.write(cobs_buf.data(), n_encoded);
+        Serial.write(PACKET_DELIM);
     }
 
-    eeprom::unlock();
+    enum class HostOp : u8 {
+        READ = 0,
+        WRITE = 1,
+        LOCK = 2,
+        UNLOCK = 3,
+        EXIT = 255,
+    };
 
-    delay(10);
-    send_packet_const(PACKET_OK);
-}
+    enum class DevOp : u8 {
+        ERR = 0,
+        READY,
+        OK,
+        BYTES,
+    };
 
-static void cmd_lock(const u8 args[], size_t args_len, struct State &state)
-{
-    if (args_len != 0) {
-        send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
-        return;
+    enum class DevError : u8 {
+        PACKET_TOO_LONG = 0,
+        PACKET_EMPTY,
+        INVALID_OP,
+        MALFORMED_MESSAGE,
+        WRITE_TIMEOUT,
+    };
+
+    std::array<u8, SERIAL_RX_BUFFER_SIZE> packet_buf{};
+
+    template<typename... Ts>
+    constexpr auto make_packet(Ts... xs)
+    {
+        return std::array<const u8, sizeof...(Ts)>{static_cast<u8>(xs)...};
     }
 
-    eeprom::lock();
+    constexpr auto PACKET_READY = make_packet(DevOp::READY);
+    constexpr auto PACKET_OK = make_packet(DevOp::OK);
+    constexpr auto PACKET_ERR_INVALID_OP =
+        make_packet(DevOp::ERR, DevError::INVALID_OP);
+    constexpr auto PACKET_ERR_PACKET_EMPTY =
+        make_packet(DevOp::ERR, DevError::PACKET_EMPTY);
+    constexpr auto PACKET_ERR_PACKET_TOO_LONG =
+        make_packet(DevOp::ERR, DevError::PACKET_TOO_LONG);
+    constexpr auto PACKET_ERR_MALFORMED_MESSAGE =
+        make_packet(DevOp::ERR, DevError::MALFORMED_MESSAGE);
+    constexpr auto PACKET_ERR_WRITE_TIMEOUT =
+        make_packet(DevOp::ERR, DevError::WRITE_TIMEOUT);
 
-    delay(10);
-    send_packet_const(PACKET_OK);
-}
+    struct State {
+        bool exit = false;
+    };
 
-static void cmd_write(const u8 args[], size_t args_len, struct State &state)
-{
-    if (args_len < 2) {
-        send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
-        return;
+    void cmd_exit(std::span<const u8> args, State &state)
+    {
+        if (!args.empty()) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
+
+        state.exit = true;
+        send_packet(PACKET_OK);
     }
 
-    u16 start = (u16)args[0] | ((u16)args[1] << 8);
-    const u8 *data = &args[2];
-    size_t data_len = args_len - 2;
+    void cmd_unlock(std::span<const u8> args, [[maybe_unused]] State &state)
+    {
+        if (!args.empty()) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
 
-    static constexpr size_t POLL_TIMEOUT = 1000;
+        eeprom::unlock();
 
-    for (size_t i = 0; i < data_len; ++i) {
-        u16 addr = start + i;
-        eeprom::write_data(addr, data[i]);
+        delay(10);
+        send_packet(PACKET_OK);
+    }
 
-        if ((addr & 0x3F) == 0x3F) {
-            // reached a 64-byte (page) boundary,
-            // wait for write cycle to finish
-            size_t count = 0;
+    void cmd_lock(std::span<const u8> args, [[maybe_unused]] State &_state)
+    {
+        if (!args.empty()) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
 
-            while ((eeprom::read_data(addr) & 0x80) != (data[i] & 0x80)) {
-                if (++count >= POLL_TIMEOUT) {
-                    send_packet_const(PACKET_ERR_WRITE_TIMEOUT);
-                    return;
+        eeprom::lock();
+
+        delay(10);
+        send_packet(PACKET_OK);
+    }
+
+    void cmd_write(std::span<const u8> args, [[maybe_unused]] State &state)
+    {
+        if (args.size() < 2) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
+
+        u16 start = concat_u16(args[0], args[1]);
+        const u8 *data = &args[2];
+        size_t data_len = args.size() - 2;
+
+        static constexpr size_t POLL_TIMEOUT = 1000;
+
+        for (size_t i = 0; i < data_len; ++i) {
+            u16 addr = start + i;
+            eeprom::write_data(addr, data[i]);
+
+            if ((addr & 0x3F) == 0x3F) {
+                // reached a 64-byte (page) boundary,
+                // wait for write cycle to finish
+                size_t count = 0;
+
+                while ((eeprom::read_data(addr) & 0x80) != (data[i] & 0x80)) {
+                    if (++count >= POLL_TIMEOUT) {
+                        send_packet(PACKET_ERR_WRITE_TIMEOUT);
+                        return;
+                    }
                 }
             }
         }
+
+        delay(10);
+        send_packet(PACKET_OK);
     }
 
-    delay(10);
-    send_packet_const(PACKET_OK);
-}
+    std::array<u8, SERIAL_RX_BUFFER_SIZE> resp_buf;
 
-static constexpr size_t RESP_BUF_CAPACITY = SERIAL_RX_BUFFER_SIZE;
-static u8 resp_buf[RESP_BUF_CAPACITY];
+    void cmd_read(std::span<const u8> args,
+                  [[maybe_unused]] struct State &state)
+    {
+        if (args.size() != 3) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
 
-static void cmd_read(const u8 args[], size_t args_len, struct State &state)
-{
-    if (args_len != 3) {
-        send_packet_const(PACKET_ERR_MALFORMED_MESSAGE);
-        return;
+        u16 start =
+            static_cast<u16>(args[0]) | (static_cast<u16>(args[1]) << 8);
+        u8 data_len = args[2];
+
+        size_t resp_len = data_len + 1;
+        resp_buf[0] = static_cast<u8>(DevOp::BYTES);
+
+        u8 *out_data = &resp_buf[1];
+
+        for (size_t i = 0; i < data_len; ++i)
+            out_data[i] = eeprom::read_data(start + i);
+
+        delay(10);
+        send_packet(std::span{resp_buf.data(), resp_len});
     }
-
-    u16 start = (u16)args[0] | ((u16)args[1] << 8);
-    u8 data_len = args[2];
-
-    size_t resp_len = data_len + 1;
-    resp_buf[0] = DEV_OP_BYTES;
-
-    u8 *out_data = &resp_buf[1];
-
-    for (size_t i = 0; i < data_len; ++i)
-        out_data[i] = eeprom::read_data(start + i);
-
-    delay(10);
-    send_packet(resp_buf, resp_len);
-}
-
-using CommandHandler = void (*)(const u8 args[], size_t args_len, State &state);
-
-static const CommandHandler CMD_HANDLERS[] = {
-    [HOST_OP_EXIT] = cmd_exit,     [HOST_OP_READ] = cmd_read,
-    [HOST_OP_WRITE] = cmd_write,   [HOST_OP_LOCK] = cmd_lock,
-    [HOST_OP_UNLOCK] = cmd_unlock,
-};
+} // namespace
 
 void setup()
 {
@@ -204,33 +207,46 @@ void setup()
     eeprom::setup();
     eeprom::enable();
 
-    send_packet_const(PACKET_READY);
+    send_packet(PACKET_READY);
 
     State state{};
 
     while (!state.exit) {
-        size_t packet_len = 0;
+        auto packet = recv_packet(packet_buf);
 
-        if (!recv_packet(packet_buf, packet_len)) {
-            send_packet_const(PACKET_ERR_PACKET_TOO_LONG);
+        if (!packet) {
+            send_packet(PACKET_ERR_PACKET_TOO_LONG);
             continue;
         }
 
-        if (packet_len == 0) {
-            send_packet_const(PACKET_ERR_PACKET_EMPTY);
+        if (packet->size() == 0) {
+            send_packet(PACKET_ERR_PACKET_EMPTY);
             continue;
         }
 
-        u8 op = packet_buf[0];
-        u8 *args = &packet_buf[1];
-        size_t args_len = packet_len - 1;
+        auto op = static_cast<HostOp>(packet->at(0));
+        std::span args = packet->subspan<1>();
 
-        if (op >= countof(CMD_HANDLERS) || CMD_HANDLERS[op] == nullptr) {
-            send_packet_const(PACKET_ERR_INVALID_OP);
-            return;
+        switch (op) {
+            case HostOp::EXIT:
+                cmd_exit(args, state);
+                break;
+            case HostOp::READ:
+                cmd_read(args, state);
+                break;
+            case HostOp::WRITE:
+                cmd_write(args, state);
+                break;
+            case HostOp::LOCK:
+                cmd_lock(args, state);
+                break;
+            case HostOp::UNLOCK:
+                cmd_unlock(args, state);
+                break;
+            default:
+                send_packet(PACKET_ERR_INVALID_OP);
+                break;
         }
-
-        CMD_HANDLERS[op](args, args_len, state);
     }
 
     eeprom::disable();

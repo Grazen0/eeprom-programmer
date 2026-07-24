@@ -2,6 +2,7 @@
 #define EEPROM_PROGRAMMER_COBS_HPP
 
 #include <Arduino.h>
+#include <span>
 
 namespace cobs
 {
@@ -9,13 +10,15 @@ namespace cobs
     // https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing#Implementation
 
     template<u8 DELIM>
-    size_t encode(const u8 data[], size_t length, u8 buffer[])
+    size_t encode(std::span<const u8> data, std::span<u8> buffer)
     {
-        u8 *encode = buffer;
+        size_t length = data.size();
+
+        u8 *encode = buffer.data();
         u8 *codep = encode++;
         u8 code = 1;
 
-        for (const u8 *byte = data; length--; ++byte) {
+        for (const u8 *byte = data.data(); length--; ++byte) {
             if (*byte != DELIM)
                 *encode++ = *byte, ++code;
 
@@ -27,16 +30,16 @@ namespace cobs
         }
 
         *codep = code;
-        return (size_t)(encode - buffer);
+        return static_cast<size_t>(encode - buffer.data());
     }
 
     template<u8 DELIM>
-    size_t decode(const u8 buffer[], size_t length, u8 data[])
+    size_t decode(std::span<const u8> buffer, std::span<u8> data)
     {
-        const u8 *byte = buffer;
-        u8 *decode = data;
+        auto byte = buffer.begin();
+        auto decode = data.begin();
 
-        for (u8 code = 0xFF, block = 0; byte < buffer + length; --block) {
+        for (u8 code = 0xFF, block = 0; byte < buffer.end(); --block) {
             if (block) {
                 *decode++ = *byte++;
             } else {
@@ -50,8 +53,9 @@ namespace cobs
             }
         }
 
-        return (size_t)(decode - data);
+        return decode - data.begin();
     }
 
+} // namespace cobs
+
 #endif
-}

@@ -12,7 +12,7 @@ namespace
         PORTC = addr & 0xFF;
         PORTA = (addr >> 8) & 0xFF;
     }
-}
+} // namespace
 
 namespace eeprom
 {
