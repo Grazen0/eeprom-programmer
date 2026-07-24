@@ -41,7 +41,7 @@ BreakConstructorInitializers: BeforeColon
 BreakStringLiterals: false
 ColumnLimit: 80
 DerivePointerAlignment: false
-FixNamespaceComments: false
+FixNamespaceComments: true
 IncludeBlocks: Merge
 IndentCaseLabels: true
 IndentGotoLabels: false
