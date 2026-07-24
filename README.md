@@ -2,6 +2,11 @@
 
 Code to program an AT28C256 EEPROM using an Arduino MEGA.
 
+| ![A picture of the circuit board used](.github/board.jpg) | ![A picture of the circuit board used, upside-down](.github/board_upside.jpg) |
+| :-------------------------------------------------------: | :---------------------------------------------------------------------------: |
+
+TODO: add circuit schematic
+
 ## Usage
 
 Some usage examples:
