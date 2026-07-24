@@ -129,7 +129,6 @@ namespace
         for (size_t i = 0; i < data_len; ++i)
             resp_data[i] = at28c256::read(start + i);
 
-        delay(10);
         send_packet(resp);
     }
 
@@ -182,7 +181,6 @@ namespace
 
         at28c256::erase();
 
-        delay(20);
         send_packet(PACKET_OK);
     }
 } // namespace
