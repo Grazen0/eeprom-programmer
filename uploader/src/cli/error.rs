@@ -4,26 +4,28 @@ use std::{io, num::TryFromIntError};
 use crate::client::ClientError;
 
 #[derive(Debug, Display, Error, From)]
+#[from(io::Error, ClientError, TryFromIntError)]
 pub enum CliError {
+    #[from]
     Io(io::Error),
+
+    #[from]
     Client(ClientError),
+
+    #[from]
     TryFromInt(TryFromIntError),
 
-    #[from(skip)]
     Clap(#[error(ignore)] String),
 
     #[display("No commands provided.")]
     NoCommandsProvided,
 
-    #[from(skip)]
     #[display("Parse error at command #{_0}")]
     ParseError(#[error(ignore)] usize),
 
-    #[from(skip)]
     #[display("Command #{_0} is empty")]
     EmptyCommand(#[error(ignore)] usize),
 
-    #[from(skip)]
     #[display("Unknown command: \"{}\"", _0.escape_default())]
     UnknownCommand(#[error(ignore)] String),
 
@@ -41,6 +43,15 @@ pub enum CliError {
 
     #[display("Failed to fix in {_0} attempts.")]
     FixFailed(#[error(ignore)] usize),
+
+    #[display("Verification found {_0} mismatches.")]
+    VerifyFailed(#[error(ignore)] usize),
+}
+
+impl From<clap::Error> for CliError {
+    fn from(e: clap::Error) -> Self {
+        Self::Clap(e.to_string())
+    }
 }
 
 pub type CliResult<T> = Result<T, CliError>;

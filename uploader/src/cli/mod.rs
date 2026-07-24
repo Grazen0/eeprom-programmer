@@ -61,7 +61,7 @@ struct LockArgs {}
 struct UnlockArgs {}
 
 fn cmd_read(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let args = ReadArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let args = ReadArgs::try_parse_from(cmd)?;
 
     if args.start as u64 + args.len > ROM_CAPACITY {
         return Err(CliError::RangeOutOfBounds {
@@ -96,7 +96,7 @@ fn cmd_read(client: &mut Client, cmd: &[String]) -> CliResult<()> {
 }
 
 fn cmd_write(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let args = WriteArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let args = WriteArgs::try_parse_from(cmd)?;
 
     println!("  Opening {:?}...", args.file);
     let mut file = File::open(args.file)?;
@@ -235,7 +235,7 @@ fn verify_fix(client: &mut Client, file: &mut File, max_attempts: usize) -> CliR
 }
 
 fn cmd_verify(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let args = VerifyArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let args = VerifyArgs::try_parse_from(cmd)?;
 
     println!("  Opening {:?}...", args.file);
     let mut file = File::open(args.file)?;
@@ -244,13 +244,19 @@ fn cmd_verify(client: &mut Client, cmd: &[String]) -> CliResult<()> {
         verify_fix(client, &mut file, args.max_attempts)?;
     } else {
         let mismatches = count_mismatches(client, &mut file)?;
-        println!("  Found {} mismatches.", mismatches.len());
+
+        if !mismatches.is_empty() {
+            return Err(CliError::VerifyFailed(mismatches.len()));
+        }
+
+        println!("  No mismatches found.");
     }
+
     Ok(())
 }
 
 fn cmd_lock(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let _args = LockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let _args = LockArgs::try_parse_from(cmd)?;
     println!("  Locking EEPROM...");
     client.lock()?;
     println!("  EEPROM locked.");
@@ -258,7 +264,7 @@ fn cmd_lock(client: &mut Client, cmd: &[String]) -> CliResult<()> {
 }
 
 fn cmd_unlock(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let _args = UnlockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let _args = UnlockArgs::try_parse_from(cmd)?;
     println!("  Unlocking EEPROM...");
     client.unlock()?;
     println!("  EEPROM unlocked.");
@@ -266,7 +272,7 @@ fn cmd_unlock(client: &mut Client, cmd: &[String]) -> CliResult<()> {
 }
 
 fn cmd_erase(client: &mut Client, cmd: &[String]) -> CliResult<()> {
-    let _args = UnlockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    let _args = UnlockArgs::try_parse_from(cmd)?;
     println!("  Erasing EEPROM...");
     client.erase()?;
     println!("  EEPROM erased.");
