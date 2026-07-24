@@ -107,10 +107,10 @@ struct WriteArgs {
 }
 
 #[derive(Debug, Clone, Parser)]
-struct UnlockArgs {}
+struct LockArgs {}
 
 #[derive(Debug, Clone, Parser)]
-struct LockArgs {}
+struct UnlockArgs {}
 
 fn cmd_read(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
     let args = ReadArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
@@ -153,6 +153,8 @@ fn cmd_read(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
 
 fn cmd_write(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
     let args = WriteArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+
+    println!("  Opening {:?}...", args.file);
     let mut file = File::open(args.file)?;
 
     let file_len = file.metadata()?.len();
@@ -199,19 +201,27 @@ fn cmd_write(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
     Ok(())
 }
 
+fn cmd_lock(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
+    let _args = LockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    println!("  Locking EEPROM...");
+    client.lock()?;
+    println!("  EEPROM locked.");
+    Ok(())
+}
+
 fn cmd_unlock(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
     let _args = UnlockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
     println!("  Unlocking EEPROM...");
-    client.unlock_eeprom()?;
+    client.unlock()?;
     println!("  EEPROM unlocked.");
     Ok(())
 }
 
-fn cmd_lock(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
-    let _args = LockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
-    println!("  Locking EEPROM...");
-    client.lock_eeprom()?;
-    println!("  EEPROM locked.");
+fn cmd_erase(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
+    let _args = UnlockArgs::try_parse_from(cmd).map_err(|e| CliError::Clap(e.to_string()))?;
+    println!("  Erasing EEPROM...");
+    client.erase()?;
+    println!("  EEPROM erased.");
     Ok(())
 }
 
@@ -221,6 +231,7 @@ pub fn exec_cmd(client: &mut Client, cmd: &Command) -> Result<(), CliError> {
         "write" => cmd_write(client, &cmd.words),
         "lock" => cmd_lock(client, &cmd.words),
         "unlock" => cmd_unlock(client, &cmd.words),
+        "erase" => cmd_erase(client, &cmd.words),
         name => Err(CliError::UnknownCommand(name.to_string())),
     }
 }

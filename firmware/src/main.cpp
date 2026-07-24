@@ -58,6 +58,7 @@ namespace
         WRITE = 1,
         LOCK = 2,
         UNLOCK = 3,
+        ERASE = 4,
         EXIT = 255,
     };
 
@@ -112,30 +113,28 @@ namespace
         send_packet(PACKET_OK);
     }
 
-    void cmd_unlock(std::span<const u8> args, [[maybe_unused]] State &state)
+    void cmd_read(std::span<const u8> args, [[maybe_unused]] State &state)
     {
-        if (!args.empty()) {
+        if (args.size() != 3) {
             send_packet(PACKET_ERR_MALFORMED_MESSAGE);
             return;
         }
 
-        at28c256::unlock();
+        u16 start = concat_u16(args[0], args[1]);
+        size_t data_len = args[2];
+
+        static std::array<u8, SERIAL_RX_BUFFER_SIZE> resp_buf;
+
+        std::span<u8> resp{resp_buf.data(), 1 + data_len};
+        resp[0] = static_cast<u8>(DevOp::BYTES);
+
+        std::span<u8> resp_data = resp.subspan<1>();
+
+        for (size_t i = 0; i < data_len; ++i)
+            resp_data[i] = at28c256::read_data(start + i);
 
         delay(10);
-        send_packet(PACKET_OK);
-    }
-
-    void cmd_lock(std::span<const u8> args, [[maybe_unused]] State &_state)
-    {
-        if (!args.empty()) {
-            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
-            return;
-        }
-
-        at28c256::lock();
-
-        delay(10);
-        send_packet(PACKET_OK);
+        send_packet(resp);
     }
 
     void cmd_write(std::span<const u8> args, [[maybe_unused]] State &state)
@@ -173,30 +172,43 @@ namespace
         send_packet(PACKET_OK);
     }
 
-    std::array<u8, SERIAL_RX_BUFFER_SIZE> resp_buf;
-
-    void cmd_read(std::span<const u8> args,
-                  [[maybe_unused]] struct State &state)
+    void cmd_lock(std::span<const u8> args, [[maybe_unused]] State &_state)
     {
-        if (args.size() != 3) {
+        if (!args.empty()) {
             send_packet(PACKET_ERR_MALFORMED_MESSAGE);
             return;
         }
 
-        u16 start =
-            static_cast<u16>(args[0]) | (static_cast<u16>(args[1]) << 8);
-        u8 data_len = args[2];
-
-        size_t resp_len = data_len + 1;
-        resp_buf[0] = static_cast<u8>(DevOp::BYTES);
-
-        u8 *out_data = &resp_buf[1];
-
-        for (size_t i = 0; i < data_len; ++i)
-            out_data[i] = at28c256::read_data(start + i);
+        at28c256::lock();
 
         delay(10);
-        send_packet(std::span{resp_buf.data(), resp_len});
+        send_packet(PACKET_OK);
+    }
+
+    void cmd_unlock(std::span<const u8> args, [[maybe_unused]] State &state)
+    {
+        if (!args.empty()) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
+
+        at28c256::unlock();
+
+        delay(10);
+        send_packet(PACKET_OK);
+    }
+
+    void cmd_erase(std::span<const u8> args, [[maybe_unused]] State &state)
+    {
+        if (!args.empty()) {
+            send_packet(PACKET_ERR_MALFORMED_MESSAGE);
+            return;
+        }
+
+        at28c256::erase();
+
+        delay(20);
+        send_packet(PACKET_OK);
     }
 } // namespace
 
@@ -219,7 +231,7 @@ void setup()
             continue;
         }
 
-        if (packet->size() == 0) {
+        if (packet->empty()) {
             send_packet(PACKET_ERR_PACKET_EMPTY);
             continue;
         }
@@ -242,6 +254,9 @@ void setup()
                 break;
             case HostOp::UNLOCK:
                 cmd_unlock(args, state);
+                break;
+            case HostOp::ERASE:
+                cmd_erase(args, state);
                 break;
             default:
                 send_packet(PACKET_ERR_INVALID_OP);

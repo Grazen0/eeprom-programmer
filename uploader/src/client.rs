@@ -10,6 +10,7 @@ mod host_op {
     pub const WRITE: u8 = 1;
     pub const LOCK: u8 = 2;
     pub const UNLOCK: u8 = 3;
+    pub const ERASE: u8 = 4;
     pub const EXIT: u8 = 255;
 }
 
@@ -36,6 +37,7 @@ enum HostMessage {
     Write { start: u16, data: Vec<u8> },
     Lock,
     Unlock,
+    Erase,
 }
 
 impl HostMessage {
@@ -56,6 +58,7 @@ impl HostMessage {
             }
             Self::Lock => packet.push(host_op::LOCK),
             Self::Unlock => packet.push(host_op::UNLOCK),
+            Self::Erase => packet.push(host_op::ERASE),
         }
 
         packet
@@ -153,18 +156,6 @@ impl Client {
         Ok(())
     }
 
-    pub fn lock_eeprom(&mut self) -> ClientResult<()> {
-        self.send_message(&HostMessage::Lock)?;
-        self.recv_ok()?;
-        Ok(())
-    }
-
-    pub fn unlock_eeprom(&mut self) -> ClientResult<()> {
-        self.send_message(&HostMessage::Unlock)?;
-        self.recv_ok()?;
-        Ok(())
-    }
-
     pub fn read_data(&mut self, start: u16, len: u8) -> ClientResult<Vec<u8>> {
         self.send_message(&HostMessage::Read { start, len })?;
 
@@ -182,6 +173,24 @@ impl Client {
             start,
         })?;
 
+        self.recv_ok()?;
+        Ok(())
+    }
+
+    pub fn lock(&mut self) -> ClientResult<()> {
+        self.send_message(&HostMessage::Lock)?;
+        self.recv_ok()?;
+        Ok(())
+    }
+
+    pub fn unlock(&mut self) -> ClientResult<()> {
+        self.send_message(&HostMessage::Unlock)?;
+        self.recv_ok()?;
+        Ok(())
+    }
+
+    pub fn erase(&mut self) -> ClientResult<()> {
+        self.send_message(&HostMessage::Erase)?;
         self.recv_ok()?;
         Ok(())
     }
