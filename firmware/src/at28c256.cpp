@@ -96,8 +96,7 @@ namespace at28c256
             write_fast(addr, data[i]);
 
             if (((addr + 1) % PAGE_SIZE) == 0 || i == data.size() - 1) {
-                // reached a 64-byte (page) boundary,
-                // wait for write cycle to finish
+                // reached a page boundary, wait for write cycle to finish
                 if (!wait_write_cycle(addr, data[i]))
                     return false;
             }
@@ -109,20 +108,20 @@ namespace at28c256
     void lock()
     {
         // can be anything according to datasheet
-        constexpr u8 XX = 0xFF;
-        constexpr u16 XX_ADDR = 0xFFFF;
+        constexpr u16 XX_ADDR = 0x7FFF;
+        u8 xx = read(XX_ADDR);
 
         write_fast(0x5555, 0xAA);
         write_fast(0x2AAA, 0x55);
         write_fast(0x5555, 0xA0);
-        write(XX_ADDR, XX);
+        write(XX_ADDR, xx);
     }
 
     void unlock()
     {
         // can be anything according to datasheet
-        constexpr u8 XX = 0xFF;
-        constexpr u16 XX_ADDR = 0xFFFF;
+        constexpr u16 XX_ADDR = 0x7FFF;
+        u8 xx = read(XX_ADDR);
 
         write_fast(0x5555, 0xAA);
         write_fast(0x2AAA, 0x55);
@@ -130,7 +129,7 @@ namespace at28c256
         write_fast(0x5555, 0xAA);
         write_fast(0x2AAA, 0x55);
         write_fast(0x5555, 0x20);
-        write(XX_ADDR, XX);
+        write(XX_ADDR, xx);
     }
 
     void erase()
