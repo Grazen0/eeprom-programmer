@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs?ref=nixos-25.05";
     flake-parts.url = "github:hercules-ci/flake-parts";
     systems.url = "github:nix-systems/default";
   };
@@ -12,7 +11,6 @@
     inputs@{
       self,
       flake-parts,
-      nixpkgs-stable,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
@@ -27,9 +25,6 @@
         }:
         let
           inherit (pkgs) lib;
-
-          stablePkgs = import nixpkgs-stable { inherit system; };
-          avrPkgs = stablePkgs.pkgsCross.avr;
         in
         {
           packages = {
@@ -68,10 +63,8 @@
             inputsFrom = lib.attrValues self'.packages;
 
             packages = with pkgs; [
-              avrdude
               glibc_multi.dev
               platformio
-              rust-analyzer
               xxd
             ];
           };
