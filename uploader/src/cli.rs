@@ -18,6 +18,9 @@ pub enum CliError {
     #[from(skip)]
     Clap(#[error(ignore)] String),
 
+    #[display("No commands provided.")]
+    NoCommandsProvided,
+
     #[from(skip)]
     #[display("Parse error at command #{_0}")]
     ParseError(#[error(ignore)] usize),
@@ -57,7 +60,7 @@ impl std::fmt::Display for Command {
     }
 }
 
-pub fn parse_command(s: &str, cmd_idx: usize) -> CliResult<Command> {
+fn parse_command(s: &str, cmd_idx: usize) -> CliResult<Command> {
     let words = shlex::split(s).ok_or(CliError::ParseError(cmd_idx + 1))?;
 
     let Some(name) = words.first().cloned() else {
@@ -65,6 +68,20 @@ pub fn parse_command(s: &str, cmd_idx: usize) -> CliResult<Command> {
     };
 
     Ok(Command { name, words })
+}
+
+pub fn parse_commands(strs: &[String]) -> CliResult<Vec<Command>> {
+    let cmds: Vec<_> = strs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| parse_command(s, i))
+        .collect::<Result<_, _>>()?;
+
+    if cmds.is_empty() {
+        return Err(CliError::NoCommandsProvided);
+    }
+
+    Ok(cmds)
 }
 
 const CHUNK_SIZE: usize = 48;
@@ -130,7 +147,7 @@ fn cmd_read(client: &mut Client, cmd: &[String]) -> Result<(), CliError> {
     }
 
     println!();
-    println!("  {} bytes read to \"{:?}\".", read, args.output);
+    println!("  {} bytes read to {:?}.", read, args.output);
     Ok(())
 }
 

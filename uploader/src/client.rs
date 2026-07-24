@@ -6,11 +6,11 @@ use serialport::SerialPort;
 use crate::cobs;
 
 mod host_op {
-    pub const READ: u8 = 0;
-    pub const WRITE: u8 = 1;
-    pub const LOCK: u8 = 2;
-    pub const UNLOCK: u8 = 3;
-    pub const EXIT: u8 = 255;
+    pub const EXIT: u8 = 0;
+    pub const READ: u8 = 1;
+    pub const WRITE: u8 = 2;
+    pub const LOCK: u8 = 3;
+    pub const UNLOCK: u8 = 4;
 }
 
 mod dev_op {
@@ -27,7 +27,7 @@ mod dev_error {
     pub const MALFORMED_MESSAGE: u8 = 3;
 }
 
-const PACKET_DELIMITER: u8 = 0;
+const PACKET_DELIM: u8 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HostMessage {
@@ -211,9 +211,9 @@ impl Client {
     fn send_packet(&mut self, data: &[u8]) -> ClientResult<()> {
         self.check_not_exited()?;
 
-        let encoded_data = cobs::encode(data, PACKET_DELIMITER);
+        let encoded_data = cobs::encode(data, PACKET_DELIM);
         self.port.write_all(&encoded_data)?;
-        self.port.write_all(&[PACKET_DELIMITER])?;
+        self.port.write_all(&[PACKET_DELIM])?;
         Ok(())
     }
 
@@ -235,14 +235,14 @@ impl Client {
         loop {
             let mut b = 0;
             self.port.read_exact(std::slice::from_mut(&mut b))?;
-            if b == PACKET_DELIMITER {
+            if b == PACKET_DELIM {
                 break;
             }
 
             encoded.push(b);
         }
 
-        Ok(cobs::decode(&encoded, PACKET_DELIMITER))
+        Ok(cobs::decode(&encoded, PACKET_DELIM))
     }
 
     fn wait_for_ready(&mut self) -> ClientResult<()> {

@@ -26,12 +26,7 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let cmds: Vec<_> = args
-        .commands
-        .iter()
-        .enumerate()
-        .map(|(i, s)| cli::parse_command(s, i))
-        .collect::<Result<_, _>>()?;
+    let cmds = cli::parse_commands(&args.commands)?;
 
     println!("Opening port at '{}'...", args.port);
     let port = serialport::new(args.port, args.baud_rate)

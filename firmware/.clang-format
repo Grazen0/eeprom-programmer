@@ -1,5 +1,6 @@
 BasedOnStyle: LLVM
 
+AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
 AlignArrayOfStructures: Right
 AlignConsecutiveAssignments: None
@@ -10,6 +11,7 @@ AlignTrailingComments: false
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
@@ -35,17 +37,22 @@ BraceWrapping:
   SplitEmptyFunction: true
   SplitEmptyRecord: true
 BreakBeforeBraces: Custom
+BreakConstructorInitializers: BeforeColon
 BreakStringLiterals: false
 ColumnLimit: 80
 DerivePointerAlignment: false
+FixNamespaceComments: false
 IncludeBlocks: Merge
 IndentCaseLabels: true
 IndentGotoLabels: false
 IndentWidth: 4
 IndentWrappedFunctionNames: false
 MaxEmptyLinesToKeep: 1
+NamespaceIndentation: All
+PackConstructorInitializers: Never
 PointerAlignment: Right
 SortIncludes: CaseSensitive
+SpaceAfterTemplateKeyword: false
 SpaceBeforeAssignmentOperators: true
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 1
