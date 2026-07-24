@@ -2,11 +2,19 @@
 #include "cobs.hpp"
 #include <Arduino.h>
 #include <array>
-#include <optional>
+#include <expected>
 #include <span>
 
 namespace
 {
+    enum class DeviceError : u8 {
+        PACKET_TOO_LONG = 0,
+        PACKET_EMPTY = 1,
+        INVALID_OP = 2,
+        MALFORMED_MESSAGE = 3,
+        WRITE_TIMEOUT = 4,
+    };
+
     constexpr u16 concat_u16(u8 lo, u8 hi)
     {
         return static_cast<u16>(lo) | (static_cast<u16>(hi) << 8);
@@ -25,7 +33,7 @@ namespace
     std::array<u8, SERIAL_RX_BUFFER_SIZE> cobs_buf;
 
     // returns std::nullopt if received packet was too long
-    std::optional<std::span<u8>> recv_packet(std::span<u8> buf)
+    std::expected<std::span<u8>, DeviceError> recv_packet(std::span<u8> buf)
     {
         size_t i = 0;
         u8 b = 0;
@@ -36,7 +44,7 @@ namespace
                 while (serial_read_u8() != PACKET_DELIM) {
                 }
 
-                return std::nullopt;
+                return std::unexpected{DeviceError::PACKET_TOO_LONG};
             }
 
             cobs_buf.at(i++) = b;
@@ -62,22 +70,12 @@ namespace
         EXIT = 255,
     };
 
-    enum class DevOp : u8 {
+    enum class DeviceOp : u8 {
         ERR = 0,
-        READY,
-        OK,
-        BYTES,
+        READY = 1,
+        OK = 2,
+        BYTES = 3,
     };
-
-    enum class DevError : u8 {
-        PACKET_TOO_LONG = 0,
-        PACKET_EMPTY,
-        INVALID_OP,
-        MALFORMED_MESSAGE,
-        WRITE_TIMEOUT,
-    };
-
-    std::array<u8, SERIAL_RX_BUFFER_SIZE> packet_buf{};
 
     template<typename... Ts>
     constexpr auto make_packet(Ts... xs)
@@ -85,18 +83,16 @@ namespace
         return std::array<const u8, sizeof...(Ts)>{static_cast<u8>(xs)...};
     }
 
-    constexpr auto PACKET_READY = make_packet(DevOp::READY);
-    constexpr auto PACKET_OK = make_packet(DevOp::OK);
+    constexpr auto PACKET_READY = make_packet(DeviceOp::READY);
+    constexpr auto PACKET_OK = make_packet(DeviceOp::OK);
     constexpr auto PACKET_ERR_INVALID_OP =
-        make_packet(DevOp::ERR, DevError::INVALID_OP);
+        make_packet(DeviceOp::ERR, DeviceError::INVALID_OP);
     constexpr auto PACKET_ERR_PACKET_EMPTY =
-        make_packet(DevOp::ERR, DevError::PACKET_EMPTY);
-    constexpr auto PACKET_ERR_PACKET_TOO_LONG =
-        make_packet(DevOp::ERR, DevError::PACKET_TOO_LONG);
+        make_packet(DeviceOp::ERR, DeviceError::PACKET_EMPTY);
     constexpr auto PACKET_ERR_MALFORMED_MESSAGE =
-        make_packet(DevOp::ERR, DevError::MALFORMED_MESSAGE);
+        make_packet(DeviceOp::ERR, DeviceError::MALFORMED_MESSAGE);
     constexpr auto PACKET_ERR_WRITE_TIMEOUT =
-        make_packet(DevOp::ERR, DevError::WRITE_TIMEOUT);
+        make_packet(DeviceOp::ERR, DeviceError::WRITE_TIMEOUT);
 
     struct State {
         bool exit = false;
@@ -126,12 +122,12 @@ namespace
         static std::array<u8, SERIAL_RX_BUFFER_SIZE> resp_buf;
 
         std::span<u8> resp{resp_buf.data(), 1 + data_len};
-        resp[0] = static_cast<u8>(DevOp::BYTES);
+        resp[0] = static_cast<u8>(DeviceOp::BYTES);
 
         std::span<u8> resp_data = resp.subspan<1>();
 
         for (size_t i = 0; i < data_len; ++i)
-            resp_data[i] = at28c256::read_data(start + i);
+            resp_data[i] = at28c256::read(start + i);
 
         delay(10);
         send_packet(resp);
@@ -145,30 +141,13 @@ namespace
         }
 
         u16 start = concat_u16(args[0], args[1]);
-        const u8 *data = &args[2];
-        size_t data_len = args.size() - 2;
+        auto data = args.subspan<2>();
 
-        constexpr size_t POLL_TIMEOUT = 1000;
-
-        for (size_t i = 0; i < data_len; ++i) {
-            u16 addr = start + i;
-            at28c256::write_data(addr, data[i]);
-
-            if ((addr & 0x3F) == 0x3F) {
-                // reached a 64-byte (page) boundary,
-                // wait for write cycle to finish
-                size_t count = 0;
-
-                while ((at28c256::read_data(addr) & 0x80) != (data[i] & 0x80)) {
-                    if (++count >= POLL_TIMEOUT) {
-                        send_packet(PACKET_ERR_WRITE_TIMEOUT);
-                        return;
-                    }
-                }
-            }
+        if (!at28c256::write_many(start, data)) {
+            send_packet(PACKET_ERR_WRITE_TIMEOUT);
+            return;
         }
 
-        delay(10);
         send_packet(PACKET_OK);
     }
 
@@ -180,8 +159,6 @@ namespace
         }
 
         at28c256::lock();
-
-        delay(10);
         send_packet(PACKET_OK);
     }
 
@@ -193,8 +170,6 @@ namespace
         }
 
         at28c256::unlock();
-
-        delay(10);
         send_packet(PACKET_OK);
     }
 
@@ -224,10 +199,12 @@ void setup()
     State state{};
 
     while (!state.exit) {
+        static std::array<u8, SERIAL_RX_BUFFER_SIZE> packet_buf;
         auto packet = recv_packet(packet_buf);
 
         if (!packet) {
-            send_packet(PACKET_ERR_PACKET_TOO_LONG);
+            std::array resp = make_packet(DeviceOp::ERR, packet.error());
+            send_packet(resp);
             continue;
         }
 

@@ -2,6 +2,7 @@
 #define EEPROM_PROGRAMMER_AT28C256_HPP
 
 #include <Arduino.h>
+#include <span>
 
 namespace at28c256
 {
@@ -11,11 +12,11 @@ namespace at28c256
 
     void disable();
 
-    u8 read_data(u16 addr);
+    u8 read(u16 addr);
 
-    void write_data(u16 addr, u8 value);
+    bool write(u16 addr, u8 value);
 
-    void write_data_careful(u16 addr, u8 value);
+    bool write_many(u16 start, std::span<const u8> data);
 
     void lock();
 
