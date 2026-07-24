@@ -23,8 +23,8 @@ eeprom-programmer 'erase'
 The CLI supports the following commands:
 
 - `read <FILE> [--start=<ADDR>] [--len=<NUM>]`: Dumps the EEPROM's contents to `<FILE>`.
-- `write <FILE> [--no-verify]`: Writes `<FILE>` to the EEPROM starting at address 0.
-- `verify <FILE> [--fix]`: Verifies the EEPROM against `<FILE>`.
+- `write <FILE> [--no-verify] [--verify-attempts=<NUM>]`: Writes `<FILE>` to the EEPROM starting at address 0.
+- `verify <FILE> [--fix] [--max-attempts=<NUM>]`: Verifies the EEPROM against `<FILE>`.
 - `unlock`: Executes the software data protection (SDP) disable algorithm.
 - `lock`: Executes the SDP enable algorithm.
 - `erase`: Executes the software chip erase algorithm.
