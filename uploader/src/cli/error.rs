@@ -26,7 +26,7 @@ pub enum CliError {
     #[display("Command #{_0} is empty")]
     EmptyCommand(#[error(ignore)] usize),
 
-    #[display("Unknown command: \"{}\"", _0.escape_default())]
+    #[display("Unknown command: {:?}", _0)]
     UnknownCommand(#[error(ignore)] String),
 
     #[display("File is too large (got {got} bytes, must be at most {max})")]
