@@ -192,7 +192,6 @@ void setup()
     Serial.begin(115200);
 
     at28c256::setup();
-    at28c256::enable();
 
     send_packet(PACKET_READY);
 
@@ -240,8 +239,6 @@ void setup()
                 break;
         }
     }
-
-    at28c256::disable();
 }
 
 void loop()

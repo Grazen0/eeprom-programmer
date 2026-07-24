@@ -8,10 +8,6 @@ namespace at28c256
 {
     void setup();
 
-    void enable();
-
-    void disable();
-
     u8 read(u16 addr);
 
     bool write(u16 addr, u8 value);

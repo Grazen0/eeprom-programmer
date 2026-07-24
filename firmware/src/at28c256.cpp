@@ -27,8 +27,10 @@ namespace
         DDRL = DIR_OUTPUT;
         PORTL = value;
 
+        digitalWrite(CHIP_ENABLE, LOW);
         digitalWrite(WRITE_ENABLE, LOW);
         digitalWrite(WRITE_ENABLE, HIGH);
+        digitalWrite(CHIP_ENABLE, HIGH);
     }
 
     [[nodiscard]] bool wait_write_cycle(u16 last_addr, u8 last_value)
@@ -61,18 +63,7 @@ namespace at28c256
         pinMode(OUTPUT_ENABLE, OUTPUT);
         pinMode(WRITE_ENABLE, OUTPUT);
 
-        delay(50);
-    }
-
-    void enable()
-    {
-        digitalWrite(CHIP_ENABLE, LOW);
-        delay(100);
-    }
-
-    void disable()
-    {
-        digitalWrite(CHIP_ENABLE, HIGH);
+        delay(20);
     }
 
     u8 read(u16 addr)
@@ -80,9 +71,11 @@ namespace at28c256
         DDRL = DIR_INPUT;
         set_address(addr);
 
+        digitalWrite(CHIP_ENABLE, LOW);
         digitalWrite(OUTPUT_ENABLE, LOW);
         u8 value = PINL;
         digitalWrite(OUTPUT_ENABLE, HIGH);
+        digitalWrite(CHIP_ENABLE, HIGH);
 
         return value;
     }
