@@ -68,7 +68,7 @@ pub enum DevError {
     PacketTooLong,
     #[display("Device received an empty packet")]
     PacketEmpty,
-    #[display("Device received an invalid host opcode")]
+    #[display("Device received an invalid opcode")]
     InvalidOp,
     #[display("Device received a malformed message")]
     MalformedMessage,
@@ -85,46 +85,33 @@ pub enum DevMessage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, Error)]
 pub enum ParseDevMessageError {
-    #[display("Host received an empty packet")]
-    PacketEmpty,
-
-    #[display("Host received an invalid error code ({_0})")]
+    #[display("Host received an invalid error code: {_0}")]
     InvalidErr(#[error(ignore)] u8),
 
-    #[display("Host received an invalid opcode ({_0})")]
-    InvalidOp(#[error(ignore)] u8),
-
-    #[display("Host received a malformed message")]
-    MalformedMessage,
+    #[display("Host received a malformed packet: {_0:?}")]
+    MalformedPacket(#[error(ignore)] Vec<u8>),
 }
 
 impl TryFrom<&[u8]> for DevMessage {
     type Error = ParseDevMessageError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        let mut iter = data.iter();
-        let op = iter
-            .next()
-            .copied()
-            .ok_or(ParseDevMessageError::PacketEmpty)?;
-
         let message = match data {
-            [dev_op::ERR] => {
-                let err = match iter.next() {
-                    Some(&dev_error::PACKET_TOO_LONG) => DevError::PacketTooLong,
-                    Some(&dev_error::PACKET_EMPTY) => DevError::PacketEmpty,
-                    Some(&dev_error::INVALID_OP) => DevError::InvalidOp,
-                    Some(&dev_error::MALFORMED_MESSAGE) => DevError::MalformedMessage,
-                    Some(&e) => return Err(ParseDevMessageError::InvalidErr(e)),
-                    None => return Err(ParseDevMessageError::MalformedMessage),
+            &[dev_op::ERR, e] => {
+                let err = match e {
+                    dev_error::PACKET_TOO_LONG => DevError::PacketTooLong,
+                    dev_error::PACKET_EMPTY => DevError::PacketEmpty,
+                    dev_error::INVALID_OP => DevError::InvalidOp,
+                    dev_error::MALFORMED_MESSAGE => DevError::MalformedMessage,
+                    e => return Err(ParseDevMessageError::InvalidErr(e)),
                 };
 
                 Ok(DevMessage::Err(err))
             }
-            [dev_op::READY] => Ok(DevMessage::Ready),
-            [dev_op::OK] => Ok(DevMessage::Ok),
+            &[dev_op::READY] => Ok(DevMessage::Ready),
+            &[dev_op::OK] => Ok(DevMessage::Ok),
             [dev_op::BYTES, data @ ..] => Ok(DevMessage::Bytes(data.to_vec())),
-            _ => Err(ParseDevMessageError::InvalidOp(op)),
+            _ => Err(ParseDevMessageError::MalformedPacket(data.to_vec())),
         }?;
 
         Ok(message)
