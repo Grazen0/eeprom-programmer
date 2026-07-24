@@ -1,9 +1,9 @@
-#ifndef EEPROM_PROGRAMMER_EEPROM_HPP
-#define EEPROM_PROGRAMMER_EEPROM_HPP
+#ifndef EEPROM_PROGRAMMER_AT28C256_HPP
+#define EEPROM_PROGRAMMER_AT28C256_HPP
 
 #include <Arduino.h>
 
-namespace eeprom
+namespace at28c256
 {
     void setup();
 
@@ -23,6 +23,6 @@ namespace eeprom
 
     void erase();
 
-} // namespace eeprom
+} // namespace at28c256
 
 #endif

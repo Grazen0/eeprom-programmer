@@ -10,42 +10,48 @@ namespace cobs
     // https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing#Implementation
 
     template<u8 DELIM>
-    size_t encode(std::span<const u8> data, std::span<u8> buffer)
+    std::span<u8> encode(std::span<const u8> data, std::span<u8> out_buf)
     {
         size_t length = data.size();
 
-        u8 *encode = buffer.data();
-        u8 *codep = encode++;
+        size_t encode = 0;
+        size_t codep = encode++;
         u8 code = 1;
 
         for (const u8 *byte = data.data(); length--; ++byte) {
-            if (*byte != DELIM)
-                *encode++ = *byte, ++code;
+            if (*byte != DELIM) {
+                out_buf.at(encode++) = *byte;
+                ++code;
+            }
 
             if (*byte == DELIM || code == 0xFF) {
-                *codep = code, code = 1, codep = encode;
+                out_buf.at(codep) = code;
+                code = 1;
+                codep = encode;
+
                 if (*byte == DELIM || length)
                     ++encode;
             }
         }
 
-        *codep = code;
-        return static_cast<size_t>(encode - buffer.data());
+        out_buf.at(codep) = code;
+        return std::span{out_buf.data(), encode};
     }
 
     template<u8 DELIM>
-    size_t decode(std::span<const u8> buffer, std::span<u8> data)
+    std::span<u8> decode(std::span<const u8> data, std::span<u8> out_buf)
     {
-        auto byte = buffer.begin();
-        auto decode = data.begin();
+        size_t byte = 0;
+        size_t decode = 0;
 
-        for (u8 code = 0xFF, block = 0; byte < buffer.end(); --block) {
+        for (u8 code = 0xFF, block = 0; byte < data.size(); --block) {
             if (block) {
-                *decode++ = *byte++;
+                out_buf.at(decode++) = data.at(byte++);
             } else {
-                block = *byte++;
+                block = data.at(byte++);
+
                 if (block && (code != 0xFF))
-                    *decode++ = 0;
+                    out_buf.at(decode++) = 0;
 
                 code = block;
                 if (code == DELIM)
@@ -53,7 +59,7 @@ namespace cobs
             }
         }
 
-        return decode - data.begin();
+        return std::span{out_buf.data(), decode};
     }
 
 } // namespace cobs

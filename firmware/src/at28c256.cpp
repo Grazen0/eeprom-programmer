@@ -1,4 +1,4 @@
-#include "eeprom.hpp"
+#include "at28c256.hpp"
 #include <Arduino.h>
 
 namespace
@@ -14,7 +14,7 @@ namespace
     }
 } // namespace
 
-namespace eeprom
+namespace at28c256
 {
     void setup()
     {
@@ -105,4 +105,4 @@ namespace eeprom
         write_data(0x5555, 0x10);
     }
 
-} // namespace eeprom
+} // namespace at28c256

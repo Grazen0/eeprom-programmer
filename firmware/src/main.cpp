@@ -1,5 +1,5 @@
+#include "at28c256.hpp"
 #include "cobs.hpp"
-#include "eeprom.hpp"
 #include <Arduino.h>
 #include <array>
 #include <optional>
@@ -42,17 +42,14 @@ namespace
             cobs_buf.at(i++) = b;
         }
 
-        size_t packet_len =
-            cobs::decode<PACKET_DELIM>(std::span{cobs_buf.data(), i}, buf);
-
-        return std::span{buf.data(), packet_len};
+        return cobs::decode<PACKET_DELIM>(std::span{cobs_buf.data(), i}, buf);
     }
 
     void send_packet(std::span<const u8> packet)
     {
-        size_t n_encoded = cobs::encode<PACKET_DELIM>(packet, cobs_buf);
+        std::span<u8> encoded = cobs::encode<PACKET_DELIM>(packet, cobs_buf);
 
-        Serial.write(cobs_buf.data(), n_encoded);
+        Serial.write(encoded.data(), encoded.size());
         Serial.write(PACKET_DELIM);
     }
 
@@ -122,7 +119,7 @@ namespace
             return;
         }
 
-        eeprom::unlock();
+        at28c256::unlock();
 
         delay(10);
         send_packet(PACKET_OK);
@@ -135,7 +132,7 @@ namespace
             return;
         }
 
-        eeprom::lock();
+        at28c256::lock();
 
         delay(10);
         send_packet(PACKET_OK);
@@ -152,18 +149,18 @@ namespace
         const u8 *data = &args[2];
         size_t data_len = args.size() - 2;
 
-        static constexpr size_t POLL_TIMEOUT = 1000;
+        constexpr size_t POLL_TIMEOUT = 1000;
 
         for (size_t i = 0; i < data_len; ++i) {
             u16 addr = start + i;
-            eeprom::write_data(addr, data[i]);
+            at28c256::write_data(addr, data[i]);
 
             if ((addr & 0x3F) == 0x3F) {
                 // reached a 64-byte (page) boundary,
                 // wait for write cycle to finish
                 size_t count = 0;
 
-                while ((eeprom::read_data(addr) & 0x80) != (data[i] & 0x80)) {
+                while ((at28c256::read_data(addr) & 0x80) != (data[i] & 0x80)) {
                     if (++count >= POLL_TIMEOUT) {
                         send_packet(PACKET_ERR_WRITE_TIMEOUT);
                         return;
@@ -196,7 +193,7 @@ namespace
         u8 *out_data = &resp_buf[1];
 
         for (size_t i = 0; i < data_len; ++i)
-            out_data[i] = eeprom::read_data(start + i);
+            out_data[i] = at28c256::read_data(start + i);
 
         delay(10);
         send_packet(std::span{resp_buf.data(), resp_len});
@@ -207,8 +204,8 @@ void setup()
 {
     Serial.begin(115200);
 
-    eeprom::setup();
-    eeprom::enable();
+    at28c256::setup();
+    at28c256::enable();
 
     send_packet(PACKET_READY);
 
@@ -252,7 +249,7 @@ void setup()
         }
     }
 
-    eeprom::disable();
+    at28c256::disable();
 }
 
 void loop()
