@@ -1,6 +1,10 @@
 # EEPROM Programmer
 
-Code to program an AT28C256 EEPROM using an Arduino MEGA.
+Code to program an AT28C256 EEPROM using an Arduino MEGA. Consists of [firmware](firmware) for an Arduino Mega 2560, and an [uploader](uploader) that talks to the firmware via serial USB.
+
+## Hardware
+
+The firmware is designed to work with a custom-made board that can be inserted on top of the Arduino's side pin column.
 
 | ![A picture of the circuit board used](.github/board.jpg) | ![A picture of the circuit board used, upside-down](.github/board_upside.jpg) |
 | :-------------------------------------------------------: | :---------------------------------------------------------------------------: |
@@ -9,9 +13,11 @@ TODO: add circuit schematic
 
 ## Usage
 
-Some usage examples:
+The uploader can be used as follows:
 
 ```bash
+# You may specify a chain of "commands" to execute. More on commands below.
+
 # Unlock, write a file, and lock again
 eeprom-programmer \
     'unlock' \
