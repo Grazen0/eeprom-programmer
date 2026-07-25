@@ -25,7 +25,7 @@ void setup()
     Serial.begin(115200);
 
     at28c256::setup();
-    protocol::send_message(protocol::DeviceMessageReady{});
+    protocol::send_message(protocol::DeviceMessage::Ready{});
 
     State state{};
 
@@ -33,7 +33,7 @@ void setup()
         if (auto resp = process_next_message(state))
             protocol::send_message(*resp);
         else
-            protocol::send_message(protocol::DeviceMessageErr{resp.error()});
+            protocol::send_message(protocol::DeviceMessage::Err{resp.error()});
     }
 }
 

@@ -3,7 +3,6 @@
 #include "protocol.hpp"
 #include "types.hpp"
 #include <expected>
-#include <variant>
 
 namespace
 {
@@ -15,69 +14,61 @@ namespace handler
     namespace
     {
         using protocol::DeviceMessage;
-        using protocol::DeviceMessageBytes;
-        using protocol::DeviceMessageErr;
-        using protocol::DeviceMessageOk;
-        using protocol::HostMessageErase;
-        using protocol::HostMessageExit;
-        using protocol::HostMessageLock;
-        using protocol::HostMessageRead;
-        using protocol::HostMessageUnlock;
-        using protocol::HostMessageWrite;
+        using protocol::HostMessage;
         using types::Error;
 
         std::expected<DeviceMessage, Error>
-        handle([[maybe_unused]] const HostMessageExit &message, State &state)
+        handle([[maybe_unused]] const HostMessage::Exit &message, State &state)
         {
             state.exit = true;
-            return DeviceMessageOk{};
+            return DeviceMessage::Ok{};
         }
 
         std::expected<DeviceMessage, Error>
-        handle(const HostMessageRead &message, [[maybe_unused]] State &state)
+        handle(const HostMessage::Read &message, [[maybe_unused]] State &state)
         {
             static std::array<u8, SERIAL_RX_BUFFER_SIZE> data_buf;
 
             for (size_t i = 0; i < message.len; ++i)
                 data_buf.at(i) = at28c256::read(message.start + i);
 
-            return DeviceMessageBytes{
+            return DeviceMessage::Bytes{
                 std::span{data_buf.data(), message.len}
             };
         }
 
         std::expected<DeviceMessage, Error>
-        handle(const HostMessageWrite &message, [[maybe_unused]] State &state)
+        handle(const HostMessage::Write &message, [[maybe_unused]] State &state)
         {
             if (!at28c256::write_many(message.start, message.data)) {
-                return DeviceMessageErr{types::Error::WRITE_TIMEOUT};
+                return DeviceMessage::Err{types::Error::WRITE_TIMEOUT};
             }
 
-            return DeviceMessageOk{};
+            return DeviceMessage::Ok{};
         }
 
         std::expected<DeviceMessage, Error>
-        handle([[maybe_unused]] const HostMessageLock &message,
+        handle([[maybe_unused]] const HostMessage::Lock &message,
                [[maybe_unused]] State &state)
         {
             at28c256::lock();
-            return DeviceMessageOk{};
+            return DeviceMessage::Ok{};
         }
 
         std::expected<DeviceMessage, Error>
-        handle([[maybe_unused]] const HostMessageUnlock &message,
+        handle([[maybe_unused]] const HostMessage::Unlock &message,
                [[maybe_unused]] State &state)
         {
             at28c256::unlock();
-            return DeviceMessageOk{};
+            return DeviceMessage::Ok{};
         }
 
         std::expected<DeviceMessage, Error>
-        handle([[maybe_unused]] const HostMessageErase &message,
+        handle([[maybe_unused]] const HostMessage::Erase &message,
                [[maybe_unused]] State &state)
         {
             at28c256::erase();
-            return DeviceMessageOk{};
+            return DeviceMessage::Ok{};
         }
 
     } // namespace
@@ -88,7 +79,7 @@ namespace handler
                                                State &state)
     {
         auto visitor = [&](const auto &msg) { return handle(msg, state); };
-        return std::visit(visitor, message);
+        return message.visit(visitor);
     }
 
 } // namespace handler

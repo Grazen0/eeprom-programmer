@@ -5,24 +5,13 @@
 #include <Arduino.h>
 #include <cstddef>
 #include <span>
-#include <variant>
 
 using types::Error;
 
 namespace
 {
     using protocol::DeviceMessage;
-    using protocol::DeviceMessageBytes;
-    using protocol::DeviceMessageErr;
-    using protocol::DeviceMessageOk;
-    using protocol::DeviceMessageReady;
     using protocol::HostMessage;
-    using protocol::HostMessageErase;
-    using protocol::HostMessageExit;
-    using protocol::HostMessageLock;
-    using protocol::HostMessageRead;
-    using protocol::HostMessageUnlock;
-    using protocol::HostMessageWrite;
 
     constexpr u8 PACKET_DELIM = 0;
 
@@ -88,7 +77,7 @@ namespace
                 if (!rest.empty())
                     return std::unexpected{Error::MALFORMED_MESSAGE};
 
-                return HostMessageExit{};
+                return HostMessage::Exit{};
 
             case HostOp::READ: {
                 if (rest.size() != 3)
@@ -97,7 +86,7 @@ namespace
                 u16 start = util::concat_u16(rest[0], rest[1]);
                 u8 len = rest[2];
 
-                return HostMessageRead{start, len};
+                return HostMessage::Read{start, len};
             }
             case HostOp::WRITE: {
                 if (rest.size() < 2)
@@ -106,25 +95,25 @@ namespace
                 u16 start = util::concat_u16(rest[0], rest[1]);
                 auto data = rest.subspan<2>();
 
-                return HostMessageWrite{start, data};
+                return HostMessage::Write{start, data};
             }
             case HostOp::LOCK:
                 if (!rest.empty())
                     return std::unexpected{Error::MALFORMED_MESSAGE};
 
-                return HostMessageLock{};
+                return HostMessage::Lock{};
 
             case HostOp::UNLOCK:
                 if (!rest.empty())
                     return std::unexpected{Error::MALFORMED_MESSAGE};
 
-                return HostMessageUnlock{};
+                return HostMessage::Unlock{};
 
             case HostOp::ERASE:
                 if (!rest.empty())
                     return std::unexpected{Error::MALFORMED_MESSAGE};
 
-                return HostMessageErase{};
+                return HostMessage::Erase{};
 
             default:
                 return std::unexpected{Error::INVALID_OP};
@@ -138,7 +127,8 @@ namespace
         BYTES = 3,
     };
 
-    std::span<u8> serialize(const DeviceMessageErr &message, std::span<u8> buf)
+    std::span<u8> serialize(const DeviceMessage::Err &message,
+                            std::span<u8> buf)
     {
         auto packet = buf.subspan<0, 2>();
 
@@ -148,15 +138,16 @@ namespace
         return packet;
     }
 
-    std::span<u8> serialize([[maybe_unused]] const DeviceMessageReady &message,
-                            std::span<u8> buf)
+    std::span<u8>
+    serialize([[maybe_unused]] const DeviceMessage::Ready &message,
+              std::span<u8> buf)
     {
         auto packet = buf.subspan<0, 1>();
         buf.at(0) = static_cast<u8>(DeviceOp::READY);
         return packet;
     }
 
-    std::span<u8> serialize([[maybe_unused]] const DeviceMessageOk &message,
+    std::span<u8> serialize([[maybe_unused]] const DeviceMessage::Ok &message,
                             std::span<u8> buf)
     {
         auto packet = buf.subspan<0, 1>();
@@ -164,7 +155,7 @@ namespace
         return packet;
     }
 
-    std::span<u8> serialize(const DeviceMessageBytes &message,
+    std::span<u8> serialize(const DeviceMessage::Bytes &message,
                             std::span<u8> buf)
     {
         auto packet = buf.subspan(0, 1 + message.data.size());
@@ -179,8 +170,8 @@ namespace
 
     std::span<u8> serialize(const DeviceMessage &message, std::span<u8> buf)
     {
-        auto visitor = [&](const auto &m) { return serialize(m, buf); };
-        return std::visit(visitor, message);
+        auto visitor = [&](const auto &msg) { return serialize(msg, buf); };
+        return message.visit(visitor);
     }
 
     std::array<u8, SERIAL_RX_BUFFER_SIZE> message_buf;
@@ -188,24 +179,24 @@ namespace
 
 namespace protocol
 {
-    HostMessageRead::HostMessageRead(u16 start, u8 len)
+    HostMessage::Read::Read(u16 start, u8 len)
         : start{start},
           len{len}
     {
     }
 
-    HostMessageWrite::HostMessageWrite(u16 start, std::span<const u8> data)
+    HostMessage::Write::Write(u16 start, std::span<const u8> data)
         : start{start},
           data{data}
     {
     }
 
-    DeviceMessageErr::DeviceMessageErr(Error err)
+    DeviceMessage::Err::Err(Error err)
         : err{err}
     {
     }
 
-    DeviceMessageBytes::DeviceMessageBytes(std::span<const u8> data)
+    DeviceMessage::Bytes::Bytes(std::span<const u8> data)
         : data{data}
     {
     }
