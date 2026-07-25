@@ -2,6 +2,7 @@
 #define EEPROM_PROGRAMMER_COBS_HPP
 
 #include <Arduino.h>
+#include <cstddef>
 #include <span>
 
 namespace cobs
@@ -12,10 +13,10 @@ namespace cobs
     template<u8 DELIM>
     std::span<u8> encode(std::span<const u8> data, std::span<u8> out_buf)
     {
-        size_t length = data.size();
+        std::size_t length = data.size();
 
-        size_t encode = 0;
-        size_t codep = encode++;
+        std::size_t encode = 0;
+        std::size_t codep = encode++;
         u8 code = 1;
 
         for (const u8 *byte = data.data(); length--; ++byte) {
@@ -41,8 +42,8 @@ namespace cobs
     template<u8 DELIM>
     std::span<u8> decode(std::span<const u8> data, std::span<u8> out_buf)
     {
-        size_t byte = 0;
-        size_t decode = 0;
+        std::size_t byte = 0;
+        std::size_t decode = 0;
 
         for (u8 code = 0xFF, block = 0; byte < data.size(); --block) {
             if (block) {

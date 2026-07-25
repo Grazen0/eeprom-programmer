@@ -91,7 +91,7 @@ namespace at28c256
         if (data.empty())
             return true;
 
-        for (size_t i = 0; i < data.size(); ++i) {
+        for (std::size_t i = 0; i < data.size(); ++i) {
             u16 addr = start + i;
             write_fast(addr, data[i]);
 

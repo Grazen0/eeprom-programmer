@@ -2,6 +2,7 @@
 #include "at28c256.hpp"
 #include "protocol.hpp"
 #include "types.hpp"
+#include <cstddef>
 #include <expected>
 
 namespace
@@ -29,7 +30,7 @@ namespace handler
         {
             static std::array<u8, SERIAL_RX_BUFFER_SIZE> data_buf;
 
-            for (size_t i = 0; i < message.len; ++i)
+            for (std::size_t i = 0; i < message.len; ++i)
                 data_buf.at(i) = at28c256::read(message.start + i);
 
             return DeviceMessage::Bytes{

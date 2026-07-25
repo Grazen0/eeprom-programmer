@@ -27,7 +27,7 @@ namespace
 
     std::expected<std::span<u8>, Error> recv_packet(std::span<u8> buf)
     {
-        size_t i = 0;
+        std::size_t i = 0;
         u8 b = 0;
 
         while ((b = serial_read_u8()) != PACKET_DELIM) {
@@ -162,7 +162,7 @@ namespace
 
         buf.at(0) = static_cast<u8>(DeviceOp::BYTES);
 
-        for (size_t i = 0; i < message.data.size(); ++i)
+        for (std::size_t i = 0; i < message.data.size(); ++i)
             packet.at(1 + i) = message.data[i];
 
         return packet;
