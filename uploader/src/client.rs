@@ -14,14 +14,14 @@ mod host_op {
     pub const EXIT: u8 = 255;
 }
 
-mod dev_op {
+mod device_op {
     pub const ERR: u8 = 0;
     pub const READY: u8 = 1;
     pub const OK: u8 = 2;
     pub const BYTES: u8 = 3;
 }
 
-mod dev_error {
+mod device_error {
     pub const PACKET_TOO_LONG: u8 = 0;
     pub const PACKET_EMPTY: u8 = 1;
     pub const INVALID_OP: u8 = 2;
@@ -67,7 +67,7 @@ impl HostMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
-pub enum DevError {
+pub enum DeviceError {
     #[display("Device received a too long packet")]
     PacketTooLong,
     #[display("Device received an empty packet")]
@@ -81,8 +81,8 @@ pub enum DevError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Display)]
-pub enum DevMessage {
-    Err(DevError),
+pub enum DeviceMessage {
+    Err(DeviceError),
     Ready,
     Ok,
     #[display("Bytes(...)")]
@@ -90,7 +90,7 @@ pub enum DevMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, Error)]
-pub enum ParseDevMessageError {
+pub enum ParseDeviceMessageError {
     #[display("Host received an invalid error code: {_0}")]
     InvalidErr(#[error(ignore)] u8),
 
@@ -98,27 +98,27 @@ pub enum ParseDevMessageError {
     MalformedPacket(#[error(ignore)] Vec<u8>),
 }
 
-impl TryFrom<&[u8]> for DevMessage {
-    type Error = ParseDevMessageError;
+impl TryFrom<&[u8]> for DeviceMessage {
+    type Error = ParseDeviceMessageError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         let message = match data {
-            &[dev_op::ERR, e] => {
+            &[device_op::ERR, e] => {
                 let err = match e {
-                    dev_error::PACKET_TOO_LONG => DevError::PacketTooLong,
-                    dev_error::PACKET_EMPTY => DevError::PacketEmpty,
-                    dev_error::INVALID_OP => DevError::InvalidOp,
-                    dev_error::MALFORMED_MESSAGE => DevError::MalformedMessage,
-                    dev_error::WRITE_TIMEOUT => DevError::WriteTimeout,
-                    e => return Err(ParseDevMessageError::InvalidErr(e)),
+                    device_error::PACKET_TOO_LONG => DeviceError::PacketTooLong,
+                    device_error::PACKET_EMPTY => DeviceError::PacketEmpty,
+                    device_error::INVALID_OP => DeviceError::InvalidOp,
+                    device_error::MALFORMED_MESSAGE => DeviceError::MalformedMessage,
+                    device_error::WRITE_TIMEOUT => DeviceError::WriteTimeout,
+                    e => return Err(ParseDeviceMessageError::InvalidErr(e)),
                 };
 
-                Ok(DevMessage::Err(err))
+                Ok(DeviceMessage::Err(err))
             }
-            &[dev_op::READY] => Ok(DevMessage::Ready),
-            &[dev_op::OK] => Ok(DevMessage::Ok),
-            [dev_op::BYTES, data @ ..] => Ok(DevMessage::Bytes(data.to_vec())),
-            _ => Err(ParseDevMessageError::MalformedPacket(data.to_vec())),
+            &[device_op::READY] => Ok(DeviceMessage::Ready),
+            &[device_op::OK] => Ok(DeviceMessage::Ok),
+            [device_op::BYTES, data @ ..] => Ok(DeviceMessage::Bytes(data.to_vec())),
+            _ => Err(ParseDeviceMessageError::MalformedPacket(data.to_vec())),
         }?;
 
         Ok(message)
@@ -128,8 +128,8 @@ impl TryFrom<&[u8]> for DevMessage {
 #[derive(Debug, From, Display, Error)]
 pub enum ClientError {
     AlreadyExited,
-    UnexpectedResponse(#[error(ignore)] DevMessage),
-    ParseDevMessage(ParseDevMessageError),
+    UnexpectedResponse(#[error(ignore)] DeviceMessage),
+    ParseDeviceMessage(ParseDeviceMessageError),
     Io(io::Error),
     SerialPort(serialport::Error),
 }
@@ -164,7 +164,7 @@ impl Client {
         self.send_message(&HostMessage::Read { start, len })?;
 
         let resp = self.recv_message()?;
-        let DevMessage::Bytes(data) = resp else {
+        let DeviceMessage::Bytes(data) = resp else {
             return Err(ClientError::UnexpectedResponse(resp));
         };
 
@@ -201,7 +201,7 @@ impl Client {
 
     fn recv_ok(&mut self) -> ClientResult<()> {
         let resp = self.recv_message()?;
-        if resp != DevMessage::Ok {
+        if resp != DeviceMessage::Ok {
             return Err(ClientError::UnexpectedResponse(resp));
         }
 
@@ -223,9 +223,9 @@ impl Client {
         Ok(())
     }
 
-    fn recv_message(&mut self) -> ClientResult<DevMessage> {
+    fn recv_message(&mut self) -> ClientResult<DeviceMessage> {
         let packet = self.recv_packet()?;
-        let message = DevMessage::try_from(packet.as_slice())?;
+        let message = DeviceMessage::try_from(packet.as_slice())?;
         Ok(message)
     }
 
@@ -247,7 +247,7 @@ impl Client {
 
     fn wait_for_ready(&mut self) -> ClientResult<()> {
         self.port.clear(serialport::ClearBuffer::All)?;
-        while self.recv_message()? != DevMessage::Ready {}
+        while self.recv_message()? != DeviceMessage::Ready {}
         Ok(())
     }
 
