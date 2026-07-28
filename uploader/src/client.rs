@@ -265,7 +265,7 @@ impl Drop for Client {
         if !self.exited
             && let Err(e) = self.exit()
         {
-            eprintln!("Client did not exit successfully: {:?}", e);
+            eprintln!("Client did not exit successfully: {}", e);
         }
     }
 }
