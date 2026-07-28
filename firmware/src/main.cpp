@@ -8,6 +8,7 @@
 namespace
 {
     using handler::State;
+    using protocol::DeviceMessage;
     using types::Error;
 
     std::expected<protocol::DeviceMessage, Error>
@@ -25,7 +26,7 @@ void setup()
     Serial.begin(115200);
 
     at28c256::setup();
-    protocol::send_message(protocol::DeviceMessage::Ready{});
+    protocol::send_message(DeviceMessage::Ready{});
 
     State state{};
 
@@ -33,7 +34,7 @@ void setup()
         if (auto resp = process_next_message(state))
             protocol::send_message(*resp);
         else
-            protocol::send_message(protocol::DeviceMessage::Err{resp.error()});
+            protocol::send_message(DeviceMessage::Err{resp.error()});
     }
 }
 
