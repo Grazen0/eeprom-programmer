@@ -9,7 +9,11 @@ The firmware is designed to work with a custom-made board that can be inserted o
 | ![A picture of the circuit board used](.github/board.jpg) | ![A picture of the circuit board used, upside-down](.github/board_upside.jpg) |
 | :-------------------------------------------------------: | :---------------------------------------------------------------------------: |
 
-TODO: add circuit schematic
+The schematic is as follows:
+
+![Circuit schematic](.github/schematic.png)
+
+The pins labeled "Arduino MEGA" go on top the rightmost header columns of the Arduino.
 
 ## Usage
 
